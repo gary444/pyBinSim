@@ -23,8 +23,9 @@
 """ Module contains main loop and configuration of pyBinSim """
 import logging
 import time
+
 import numpy as np
-import pyaudio
+import soundcard as sc
 
 from pybinsim.convolver import ConvolverFFTW
 from pybinsim.filterstorage import FilterStorage
@@ -120,8 +121,6 @@ class BinSim(object):
         self.convolverWorkers = []
         self.convolverHP, self.convolvers, self.filterStorage, self.oscReceiver, self.soundHandler = self.initialize_pybinsim()
 
-        self.p = pyaudio.PyAudio()
-
     def __enter__(self):
         return self
 
@@ -130,11 +129,14 @@ class BinSim(object):
 
     def stream_start(self):
         self.log.info("BinSim: stream_start")
-        self.stream = self.p.open(format=pyaudio.paFloat32, channels=2,
-                                  rate=self.sampleRate, output=True,
-                                  frames_per_buffer=self.blockSize,
-                                  stream_callback=audio_callback(self))
-        self.stream.start_stream()
+
+        stream_callback = audio_callback(self)
+
+        spk = sc.default_speaker()
+        with spk.player(samplerate=self.sampleRate, blocksize=self.blockSize) as sp:
+            while True:
+                result = stream_callback(self.blockSize)
+                sp.play(result)
 
         while self.stream.is_active():
             time.sleep(1)
@@ -178,20 +180,9 @@ class BinSim(object):
 
         return convolverHP, convolvers, filterStorage, oscReceiver, soundHandler
 
-    def close(self):
-        self.log.info("BinSim: close")
-        self.stream_close()
-        self.p.terminate()
-
-    def stream_close(self):
-        self.log.info("BinSim: stream_close")
-        self.stream.stop_stream()
-        self.stream.close()
-
     def __cleanup(self):
         # Close everything when BinSim is finished
         self.filterStorage.close()
-        self.close()
 
         self.oscReceiver.close()
 
@@ -208,7 +199,7 @@ def audio_callback(binsim):
     assert isinstance(binsim, BinSim)
 
     # The pyAudio Callback
-    def callback(in_data, frame_count, time_info, status):
+    def callback(block_size):
         # print("pyAudio callback")
 
         current_soundfile_list = binsim.oscReceiver.get_sound_file_list()
@@ -254,13 +245,7 @@ def audio_callback(binsim):
         if np.max(np.abs(binsim.result)) > 1:
             binsim.log.warn('Clipping occurred: Adjust loudnessFactor!')
 
-        # When the last block is small than the blockSize, this is probably the end of the file.
-        # Call pyaudio to stop after this frame
-        # Should not be the case for current soundhandler implementation
-        if binsim.block.size < callback.config.get('blockSize'):
-            pyaudio.paContinue = 1
-
-        return (binsim.result[:frame_count].tostring(), pyaudio.paContinue)
+        return binsim.result[:block_size]
 
     callback.config = binsim.config
 
