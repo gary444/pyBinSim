@@ -13,3 +13,5 @@ venv*/
 
 # folder holding BRIR wave files
 brirs/
+
+signal/

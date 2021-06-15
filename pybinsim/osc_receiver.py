@@ -54,9 +54,16 @@ class OscReceiver(object):
         osc_dispatcher = dispatcher.Dispatcher()
         osc_dispatcher.map("/pyBinSim", self.handle_filter_input)
         osc_dispatcher.map("/pyBinSimFile", self.handle_file_input)
+        osc_dispatcher.map("/test", self.handle_test)
 
         self.server = osc_server.ThreadingOSCUDPServer(
             (self.ip, self.port), osc_dispatcher)
+
+    def handle_test(self, identifier, channel, *args):
+
+        self.log.info("Test OSC receive:")
+        self.log.info("Channel: {}".format(str(channel)))
+        self.log.info("Args: {}".format(str(args)))
 
     def handle_filter_input(self, identifier, channel, *args):
         """
