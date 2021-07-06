@@ -110,7 +110,7 @@ class BinSim(object):
         self.config = BinSimConfig()
         self.config.read_from_file(config_file)
 
-        self.inChannels = 2 #Unity sends stereo for now
+        self.inChannels = 2 # unity sends stereo audio
         self.channelsToProcess = 1
         self.outChannels = 2
         self.sampleRate = self.config.get('samplingRate')
@@ -125,7 +125,7 @@ class BinSim(object):
 
 
         self.zmq_ip = "127.0.0.1";
-        self.zmq_port = "12345";
+        self.zmq_port = "12344";
         self.init_zmq()
 
     def __enter__(self):
@@ -139,7 +139,7 @@ class BinSim(object):
         self.log.info(("BinSim: init ZMQ, IP: {}, port {}").format(self.zmq_ip, self.zmq_port))
         self.zmq_context = zmq.Context()
         self.zmq_socket = self.zmq_context.socket(zmq.REP)
-        self.zmq_socket.bind("tcp://*:12345")
+        self.zmq_socket.bind("tcp://" + self.zmq_ip + ":" + self.zmq_port )
 
     # def clean_zmq(self):
 
@@ -156,10 +156,13 @@ class BinSim(object):
 
                 # non copying buffer view, but is read only...alternative for this?
                 in_buf = memoryview(message_frame)
-                stereo_audio_in = np.frombuffer(in_buf, dtype=np.float32).reshape((self.blockSize, self.inChannels))
 
+                stereo_audio_in = np.frombuffer(in_buf, dtype=np.float32).reshape((self.blockSize, self.inChannels))
                 # take first channel of input only
                 self.block[:] = stereo_audio_in[:,0]
+
+                # is this a copy? can itbe avoided?
+                # self.block[:] = np.frombuffer(in_buf, dtype=np.float32)
 
 
                 self.process_block();

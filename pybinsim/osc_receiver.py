@@ -83,8 +83,8 @@ class OscReceiver(object):
         #    args=(args+(0,)*6)[:6]
         #    print("filter value list incomplete")
 
-        self.log.info("Channel: {}".format(str(channel)))
-        self.log.info("Args: {}".format(str(args)))
+        # self.log.info("Channel: {}".format(str(channel)))
+        # self.log.info("Args: {}".format(str(args)))
 
         current_channel = channel
 
@@ -92,8 +92,11 @@ class OscReceiver(object):
             #self.log.info("new filter")
             self.filters_updated[current_channel] = True
             self.valueList[current_channel] = tuple(args)
-        else:
-            self.log.info("same filter as before")
+
+            self.log.info("Channel: {}".format(str(channel)))
+            self.log.info("Args: {}".format(str(args)))
+        # else:
+            # self.log.info("same filter as before")
 
     def handle_file_input(self, identifier, soundpath):
         """ Handler for playlist control"""
