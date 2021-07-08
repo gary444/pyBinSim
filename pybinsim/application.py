@@ -111,7 +111,7 @@ class BinSim(object):
         self.config.read_from_file(config_file)
 
         self.inChannels = 2 # unity sends stereo audio
-        self.channelsToProcess = 1
+        self.channelsToProcess = self.config.get('maxChannels')
         self.outChannels = 2
         self.sampleRate = self.config.get('samplingRate')
         self.blockSize = self.config.get('blockSize')
@@ -125,7 +125,7 @@ class BinSim(object):
 
 
         self.zmq_ip = "127.0.0.1";
-        self.zmq_port = "12344";
+        self.zmq_port = "12346";
         self.init_zmq()
 
     def __enter__(self):
@@ -161,11 +161,14 @@ class BinSim(object):
                 # take first channel of input only
                 self.block[:] = stereo_audio_in[:,0]
 
+                # get channel id from second buffer element
+                convChannel = int(stereo_audio_in[0,1])
+
                 # is this a copy? can itbe avoided?
                 # self.block[:] = np.frombuffer(in_buf, dtype=np.float32)
 
 
-                self.process_block();
+                self.process_block(convChannel);
 
                 # self.result[:,0] = np.multiply(self.block, 0.5)
                 # self.result[:,1] = np.multiply(self.block, 1.0)
@@ -227,21 +230,21 @@ class BinSim(object):
             if self.convolverHP:
                 self.convolverHP.close()
 
-    def process_block(self):
+    def process_block(self, convChannel):
 
 
         # Update Filters and run each convolver with the current block
         # for n in range(binsim.soundHandler.get_sound_channels()):
 
-        convChannel = 0
+        # convChannel = 0
 
         # Get new Filter
         if self.oscReceiver.is_filter_update_necessary(convChannel):
             filterValueList = self.oscReceiver.get_current_values(convChannel)
             filter = self.filterStorage.get_filter(
                 Pose.from_filterValueList(filterValueList))
-            self.convolvers[convChannel].setIR(
-                filter, self.config.get('enableCrossfading'))
+            # self.convolvers[convChannel].setIR(filter, self.config.get('enableCrossfading'))
+            self.convolvers[convChannel].setIR(filter, False)
 
         self.result[:, 0], self.result[:,1] = self.convolvers[convChannel].process(self.block)
 
