@@ -141,9 +141,6 @@ class BinSim(object):
         self.zmq_socket = self.zmq_context.socket(zmq.REP)
         self.zmq_socket.bind("tcp://" + self.zmq_ip + ":" + self.zmq_port )
 
-    # def clean_zmq(self):
-
-
     def run_server(self):
         self.log.info("BinSim: run_server")
 
@@ -152,7 +149,7 @@ class BinSim(object):
             #TODO avoid copying message
             try:
                 message_frame = self.zmq_socket.recv(flags=zmq.NOBLOCK,copy=False)
-                print("Received message frame with " + str(len(message_frame)) + " bytes")
+                # print("Received message frame with " + str(len(message_frame)) + " bytes")
 
                 # non copying buffer view, but is read only...alternative for this?
                 in_buf = memoryview(message_frame)
@@ -163,15 +160,14 @@ class BinSim(object):
 
                 # get channel id from second buffer element
                 convChannel = int(stereo_audio_in[0,1])
+                # print("Channel: " + str(convChannel))
+                azimuth=int(stereo_audio_in[1,1]);
+                elevation=int(stereo_audio_in[2,1]);
 
-                # is this a copy? can itbe avoided?
-                # self.block[:] = np.frombuffer(in_buf, dtype=np.float32)
+                print("Angle: " + str(azimuth) + " / " + str(elevation))
 
 
                 self.process_block(convChannel);
-
-                # self.result[:,0] = np.multiply(self.block, 0.5)
-                # self.result[:,1] = np.multiply(self.block, 1.0)
 
                 #reply to client
                 self.zmq_socket.send(self.result, copy=False);
