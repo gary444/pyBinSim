@@ -54,16 +54,15 @@ class BinSimConfig(object):
         self.log = logging.getLogger("pybinsim.BinSimConfig")
 
         # Default Configuration
-        self.configurationDict = {'soundfile': '',
-                                  'blockSize': 256,
+        self.configurationDict = {'blockSize': 256,
                                   'filterSize': 16384,
                                   'filterList': 'brirs/filter_list_kemar5.txt',
                                   'enableCrossfading': False,
                                   'useHeadphoneFilter': False,
                                   'loudnessFactor': float(1),
                                   'maxChannels': 8,
-                                  'samplingRate': 44100,
-                                  'loopSound': True}
+                                  'serverIPAddress': '127.0.0.1',
+                                  'serverPort': '12346'}
 
     def read_from_file(self, filepath):
         config = open(filepath, 'r')
@@ -124,8 +123,8 @@ class BinSim(object):
 
         self.poseParser = InlinePoseParser(self.maxChannels)
 
-        self.zmq_ip = "127.0.0.1";
-        self.zmq_port = "12346";
+        self.zmq_ip = self.config.get('serverIPAddress')
+        self.zmq_port = self.config.get('serverPort')
         self.init_zmq()
 
     def __enter__(self):
