@@ -24,7 +24,6 @@
 import logging
 import time
 import numpy as np
-import pyaudio
 import zmq
 
 from pybinsim.convolver import ConvolverFFTW
