@@ -33,6 +33,9 @@ Navigate to the root of the repository and run file run.py:
 
 Configuration can be specified in the file ``config/server_config.cfg``.
 
+Description
+-------
+
 For a description of pyBinSim please see the original `pyBinSim repository <https://github.com/pyBinSim/pyBinSim>`_.
 
 
