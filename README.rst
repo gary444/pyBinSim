@@ -1,16 +1,21 @@
 .. image:: https://travis-ci.org/pyBinSim/pyBinSim.svg?branch=master
     :target: https://travis-ci.org/pyBinSim/pyBinSim
 
-PyBinSim
+PyBinSimServer
 ========
+
+This is an adapted version of pyBinSim which runs as a local audio processing server. The client sends audio packets via a TCP connection managed by the ZeroMQ library. PyBinSim applies binaural simulation processing, according to the spatial information delivered in the packet. The audio is then sent back, completing a request-reply communication model.
+
 
 Install
 -------
-
+Miniconda should be used to manage dependencies. The installers for Miniconda can be found `here <https://docs.conda.io/en/latest/miniconda.html>`_.
 ::
 
-    $ conda create --name binsim python=3.5 numpy
-    $ source activate binsim
+    $ conda create --name binsim python=3.5 numpy pyzmq
+    $ source activate binsim # or conda activate binsim on windows
+    $ pip install cython
+    $ pip install cffi==1.14.5
     $ pip install pybinsim
     
 On linux, make sure that gcc and the development headers for libfftw and portaudio are installed, before invoking `pip install pybinsim`.
@@ -22,106 +27,19 @@ For ubuntu::
 Run
 ---
 
-Create ``pyBinSimSettings.txt`` file with content like this
+Navigate to the root of the repository and run file run.py:
 
-::
+    $ python run.py
 
-    soundfile signals/test441kHz.wav
-    blockSize 512
-    filterSize 16384
-    filterList brirs/filter_list_kemar5.txt
-    maxChannels 2
-    samplingRate 44100
-    enableCrossfading True
-    useHeadphoneFilter False
-    loudnessFactor 0.5
-    loopSound False
+Configuration can be specified in the file ``config/server_config.cfg``.
 
-
-Start Binaural Simulation
-
-::
-
-    import pybinsim
-    import logging
-
-    pybinsim.logger.setLevel(logging.DEBUG)    # defaults to INFO
-    #Use logging.WARNING for printing warnings only
-
-    with pybinsim.BinSim('pyBinSimSettings.txt') as binsim:
-        binsim.stream_start()
-
-Description
-===========
-
-Basic principle:
-----------------
-
-Depending on the number of input channels (wave-file channels) the corresponding number of virtual sound sources is created. The filter for each sound source can selected and activitated via OSC messages. The messages basically contain the number
-index of the source for which the filter should be switched and an identifier string to address the correct filter. The correspondence between parameter value and filter is determined by a filter list which can be adjusted individually for the specific use case.
-    
-Config parameter description:
------------------------------
-
-soundfile: 
-    Defines \*.wav file which is played back at startup. Sound file can contain up to maxChannels audio channels. Also accepts multiple files separated by '#'; Example: 'soundfile signals/sound1.wav#signals/sound2.wav
-blockSize: 
-    Number of samples which are processed per block. Low values reduce delay but increase cpu load.
-filterSize: 
-    Defines filter size of the filters loaded with the filter list. Filter size should be a mutltiple of blockSize.
-maxChannels: 
-    Maximum number of sound sources/audio channels which can be controlled during runtime. The value for maxChannels must match or exceed the number of channels of soundFile(s).
-samplingRate: 
-    Sample rate for filters and soundfiles. Caution: No automatic sample rate conversion.
-enableCrossfading: 
-    Enable cross fade between audio blocks. Set 'False' or 'True'.
-useHeadphoneFilter: 
-    Enables headhpone equalization. The filterset should contain a filter with the identifier HPFILTER. Set 'False' or 'True'.
-loudnessFactor: 
-    Factor for overall output loudness. Attention: Clipping may occur
-loopSound:
-    Enables looping of sound file or sound file list. Set 'False' or 'True'.
-
-
-OSC Messages and filter lists:
-------------------------------
-
-Example line from filter list:
-165 2 0 0 0 0 brirs/kemar5/kemar_0_165.wav
-
-To activate this filter for the third channel (counting starts at zero) for your wav file you have to send the following message to the pc where pyBinSim runs (port 10000):
-
-::
-
-    /pyBinSim 2 165 2 0 0 0 0
-        
-When you want to play another sound file you send:
-
-::
-
-    /pyBinSimFile folder/file_new.wav
-
-Or a sound file list
-
-::
-
-    /pyBinSimFile folder/file_1.wav#folder/file_2.wav
-
-The audiofile has to be located on the pc where pyBinSim runs. Files are not transmitted over network.
-
-
-Demos
------
-
-Check the https://github.com/pyBinSim/AppExamples repository for ready-to-use demos.
-
-
+For a description of pyBinSim please see the original `pyBinSim repository <https://github.com/pyBinSim/pyBinSim>`_.
 
 
 Reference:
 ----------
 
-Please cite our work:
+Please cite the authors' work:
 
 Neidhardt, A.; Klein, F.; Knoop, N. and Köllmer, T., "Flexible Python tool for dynamic binaural synthesis applications", 142nd AES Convention, Berlin, 2017.
 
