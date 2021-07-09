@@ -1,7 +1,7 @@
 .. image:: https://travis-ci.org/pyBinSim/pyBinSim.svg?branch=master
     :target: https://travis-ci.org/pyBinSim/pyBinSim
 
-PyBinSimServer
+PyBinSim Server
 ========
 
 This is an adapted version of pyBinSim which runs as a local audio processing server. The client sends audio packets via a TCP connection managed by the ZeroMQ library. PyBinSim applies binaural simulation processing, according to the spatial information delivered in the packet. The audio is then sent back, completing a request-reply communication model.
