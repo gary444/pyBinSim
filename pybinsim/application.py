@@ -31,7 +31,6 @@ from pybinsim.convolver import ConvolverFFTW
 from pybinsim.filterstorage import FilterStorage
 from pybinsim.inline_pose_parser import InlinePoseParser
 from pybinsim.pose import Pose
-from pybinsim.soundhandler import SoundHandler
 
 
 def parse_boolean(any_value):
