@@ -24,15 +24,13 @@
 import logging
 import time
 import sys
-
 import numpy as np
-import sounddevice as sd
+import zmq
 
 from pybinsim.convolver import ConvolverFFTW
 from pybinsim.filterstorage import FilterStorage
-from pybinsim.osc_receiver import OscReceiver
+from pybinsim.inline_pose_parser import InlinePoseParser
 from pybinsim.pose import Pose
-from pybinsim.soundhandler import SoundHandler
 
 
 def parse_boolean(any_value):
@@ -69,7 +67,9 @@ class BinSimConfig(object):
                                   'useSplittedFilters': False,
                                   'lateReverbSize': 16384,
                                   'pauseConvolution': False,
-                                  'pauseAudioPlayback': False}
+                                  'pauseAudioPlayback': False,
+                                  'serverIPAddress': '127.0.0.1',
+                                  'serverPort': '12346'}
 
     def read_from_file(self, filepath):
         config = open(filepath, 'r')
@@ -122,8 +122,9 @@ class BinSim(object):
         self.config = BinSimConfig()
         self.config.read_from_file(config_file)
 
-        self.nChannels = self.config.get('maxChannels')
-        self.sampleRate = self.config.get('samplingRate')
+        self.inChannels = 2 # unity sends stereo audio
+        self.outChannels = 2
+        self.maxChannels = self.config.get('maxChannels')
         self.blockSize = self.config.get('blockSize')
 
         self.result = None
@@ -131,38 +132,66 @@ class BinSim(object):
         self.stream = None
 
         self.convolverWorkers = []
-        self.convolverHP, self.convolvers, self.filterStorage, self.oscReceiver, self.soundHandler = self.initialize_pybinsim()
+        #self.convolverHP, self.convolvers, self.filterStorage, self.oscReceiver, self.soundHandler = self.initialize_pybinsim()
+        self.convolverHP, self.convolvers, self.filterStorage = self.initialize_pybinsim()
+        
+        self.poseParser = InlinePoseParser(self.maxChannels)
+        
+        self.zmq_ip = self.config.get('serverIPAddress')
+        self.zmq_port = self.config.get('serverPort')
+        self.init_zmq()
 
     def __enter__(self):
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         self.__cleanup()
+        
+    def init_zmq(self):
+        self.log.info(f'BinSim: init ZMQ, IP: {self.zmq_ip}, Port: {self.zmq_port}')
+        self.zmq_context = zmq.Context()
+        self.zmq_socket = self.zmq_context.socket(zmq.REP)
+        self.zmq_socket.bind('tcp://' + self.zmq_ip + ':' + self.zmq_port)
 
-    def stream_start(self):
-        self.log.info("BinSim: stream_start")
-        try:
-            self.stream = sd.OutputStream(samplerate=self.sampleRate,
-                                          dtype=np.float32,
-                                          channels=2,
-                                          latency="low",
-                                          blocksize=self.blockSize,
-                                          callback=audio_callback(self))
+    def run_server(self):
+        self.log.info('BinSim: run_server')
+        
+        while True:
+            # wait for request from client
+            # TODO: avoid copying message
+            try:
+                message_frame = self.zmq_socket.recv(flags=zmq.NOBLOCK, copy=False)
+                
+                # non copying buffer view, but is read only...alternative for this?
+                in_buf = memoryview(message_frame)
 
-            with self.stream as s:
-                self.log.info(f"latency: {s.latency} seconds")
-                while True:
-                    sd.sleep(1000)
+                stereo_audio_in = np.frombuffer(in_buf, dtype=np.float32).reshape((self.blockSize, self.inChannels))
+                # take first channel of input only
+                self.block[:] = stereo_audio_in[:,0]
 
-        except KeyboardInterrupt:
-            print("KEYBOARD")
-        except Exception as e:
-            print(e)
+                # get channel id from second buffer element
+                convChannel = int(stereo_audio_in[0,1])
+                azimuth=int(stereo_audio_in[1,1]);
+                elevation=int(stereo_audio_in[2,1]);
+
+                # print("Channel: " + str(convChannel))
+                # print("Angle: " + str(azimuth) + " / " + str(elevation))
+
+                self.poseParser.parse_pose_input(convChannel, azimuth, elevation)
+
+                self.process_block(convChannel);
+
+                #reply to client
+                self.zmq_socket.send(self.result, copy=False);
+
+            except zmq.ZMQError:
+                pass
+
 
     def initialize_pybinsim(self):
         self.result = np.empty([self.blockSize, 2], dtype=np.float32)
-        self.block = np.empty(
-            [self.nChannels, self.blockSize], dtype=np.float32)
+        #self.block = np.empty([self.nChannels, self.blockSize], dtype=np.float32)
+        self.block = np.empty(self.blockSize, dtype=np.float32)
 
         # Create FilterStorage
         filterStorage = FilterStorage(self.config.get('filterSize'),
@@ -173,24 +202,12 @@ class BinSim(object):
                                       self.config.get('useSplittedFilters'),
                                       self.config.get('lateReverbSize'))
 
-        # Start an oscReceiver
-        oscReceiver = OscReceiver(self.config)
-        oscReceiver.start_listening()
-        time.sleep(1)
-
-        # Create SoundHandler
-        soundHandler = SoundHandler(self.blockSize, self.nChannels,
-                                    self.sampleRate, self.config.get('loopSound'))
-
-        soundfile_list = self.config.get('soundfile')
-        soundHandler.request_new_sound_file(soundfile_list)
-
         # Create N convolvers depending on the number of wav channels
-        self.log.info('Number of Channels: ' + str(self.nChannels))
-        convolvers = [None] * self.nChannels
-        for n in range(self.nChannels):
-            convolvers[n] = ConvolverFFTW(self.config.get(
-                'filterSize'), self.blockSize, False, self.config.get('useSplittedFilters'), self.config.get('lateReverbSize'))
+        self.log.info('Number of input channels: ' + str(self.inChannels))
+        self.log.info('Number of channels to process: ' + str(self.maxChannels))
+        convolvers = [None] * self.maxChannels
+        for n in range(self.maxChannels):
+            convolvers[n] = ConvolverFFTW(self.config.get('filterSize'), self.blockSize, False, self.config.get('useSplittedFilters'), self.config.get('lateReverbSize'))
 
         # HP Equalization convolver
         convolverHP = None
@@ -200,22 +217,50 @@ class BinSim(object):
             hpfilter = filterStorage.get_headphone_filter()
             convolverHP.setIR(hpfilter, False)
 
-        return convolverHP, convolvers, filterStorage, oscReceiver, soundHandler
+        return convolverHP, convolvers, filterStorage
+
+    def close(self):
+        self.log.info('BinSim: close')
 
     def __cleanup(self):
         # Close everything when BinSim is finished
-        self.oscReceiver.close()
-        self.stream.close()
         self.filterStorage.close()
+        self.close()
 
-        for n in range(self.nChannels):
+        for n in range(self.maxChannels):
             self.convolvers[n].close()
 
         if self.config.get('useHeadphoneFilter'):
             if self.convolverHP:
                 self.convolverHP.close()
 
+    def process_block(self, convChannel):
+        # Update Filter and run convolver with the current block
+        
+        # Get new Filter
+        if self.poseParser.is_filter_update_necessary(convChannel):
+            filterValueList = self.poseParser.get_current_values(convChannel)
+            filter = self.filterStorage.get_filter(Pose.from_filterValueList(filterValueList))
+            self.convolvers[convChannel].setIR(filter, self.config.get('enableCrossfading'))
+        
+        self.result[:, 0], self.result[:, 1] = self.convolvers[convChannel].process(self.block)
+        
+        # Apply headphone filter
+        if self.config.get('useHeadphoneFilter'):
+            self.result[:, 0], self.result[:, 1] = self.convolverHP.process(self.result)
+            
+        # Scale data if required
+        self.result = np.multiply(
+            self.result, self.config.get('loudnessFactor'))
 
+        if np.max(np.abs(self.result)) > 1:
+            self.log.warn('Clipping occurred: Adjust loudnessFactor!')
+
+        # if self.block.size < self.blockSize:
+            # self.log.warn('Block size too small: not handled yet')
+        
+## TODO: is there still stuff to change in the process function
+##       will we need to take it from below
 def audio_callback(binsim):
     """ Wrapper for callback to hand over custom data """
     assert isinstance(binsim, BinSim)

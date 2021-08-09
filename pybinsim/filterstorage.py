@@ -23,7 +23,6 @@
 import logging
 import multiprocessing as mp
 import enum
-from pathlib import Path
 
 import numpy as np
 import soundfile as sf
@@ -249,38 +248,16 @@ class FilterStorage(object):
         start = time.time()
         parsed_filter_list = list(self.parse_filter_list())
 
-#        # check if all files are available
-#        are_files_missing = False
-#        for pose, filter_path in parsed_filter_list:
-#            fn_filter = Path(filter_path)
-#            if not fn_filter.exists():
-#                self.log.warn(f'Wavefile not found: {fn_filter}')
-#                are_files_missing = True
-#        if are_files_missing:
-#            raise FileNotFoundError("Some files are missing")
-#
-#        for pose, filter_path in parsed_filter_list:
-#            self.log.debug('Loading {}'.format(filter_path))
-#
-#            loaded_filter = self.load_filter(filter_path)
-#            current_filter = Filter(
-#                loaded_filter, self.ir_blocks, self.block_size, filename=filter_path)
-#
-#            # create key and store in dict.
-#            key = pose.create_key()
-#            self.filter_dict.update({key: current_filter})
-
         for filter_pose, filter_path, filter_type in parsed_filter_list:
+        #for i, (pose, filter_path, filter_type) in enumerate(self.parse_filter_list()):
             # Skip undefined types (e.g. old format)
             if filter_type == FilterType.Undefined:
                 continue
             
-            fn_filter = Path(filter_path)
-            
             # check for missing filters and throw exception if not found
-            if not Path(filter_path).exists():
-                self.log.warn(f'Wavefile not found: {fn_filter}')
-                raise FileNotFoundError(f'File {fn_filter} is missing.')
+            #if not Path(filter_path).exists():
+            #    self.log.warn(f'Wavefile not found: {fn_filter}')
+            #    raise FileNotFoundError(f'File {fn_filter} is missing.')
             
             self.log.debug(f'Loading {filter_path}')
             if filter_type == FilterType.Filter:
