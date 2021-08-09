@@ -1,5 +1,3 @@
-.. image:: https://travis-ci.org/pyBinSim/pyBinSim.svg?branch=master
-    :target: https://travis-ci.org/pyBinSim/pyBinSim
 
 PyBinSim Server
 ========
