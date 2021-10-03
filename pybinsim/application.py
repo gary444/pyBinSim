@@ -157,7 +157,7 @@ class BinSim(object):
             #TODO avoid copying message
             try:
                 message_frame = self.zmq_socket.recv(flags=zmq.NOBLOCK,copy=False)
-                # print("Received message frame with " + str(len(message_frame)) + " bytes")
+                print("Received message frame with " + str(len(message_frame)) + " bytes")
 
                 # non copying buffer view, but is read only...alternative for this?
                 in_buf = memoryview(message_frame)
