@@ -2,12 +2,15 @@
 PyBinSim Server
 ========
 
-This is an adapted version of pyBinSim which runs as a local audio processing server. The client sends audio packets via a TCP connection managed by the ZeroMQ library. PyBinSim applies binaural simulation processing, according to the spatial information delivered in the packet. The audio is then sent back, completing a request-reply communication model.
+This is an adapted version of pyBinSim which runs as a local audio processing server. The client sends audio packets via a TCP connection managed by the ZeroMQ library. PyBinSim applies binaural simulation processing, according to the spatial information delivered in the packet. The audio is then sent back to the client, completing a request-reply communication model.
 
 
 Install
 -------
 Miniconda should be used to manage dependencies. The installers for Miniconda can be found `here <https://docs.conda.io/en/latest/miniconda.html>`_.
+
+To create a conda environment, open the Anaconda Prompt and enter:
+
 ::
 
     $ conda create --name binsim python=3.5 numpy pyzmq
