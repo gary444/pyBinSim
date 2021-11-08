@@ -174,6 +174,10 @@ class BinSim(object):
                 src_to_lst_elevation = quantize_elevation( stereo_audio_in[4,1] );
                 lst_to_src_dist      = stereo_audio_in[5,1];
 
+                # read rowmajor matrices from audio packet
+                src_transform = stereo_audio_in[6:22, 1].reshape(4,4);
+                lst_transform = stereo_audio_in[22:38,1].reshape(4,4);
+
                 # correct 30 degree offset
                 lst_to_src_azimuth = (lst_to_src_azimuth + 30) % 360
                 
@@ -181,6 +185,8 @@ class BinSim(object):
                 # print("Listener to source Angle: " + str(lst_to_src_azimuth) + " / " + str(lst_to_src_elevation))
                 # print("Source to listener Angle: " + str(src_to_lst_azimuth) + " / " + str(src_to_lst_elevation))
                 # print("Source to listener distance: " + str(lst_to_src_dist))
+                # print("Source transform: " + str(src_transform))
+                # print("Listener transform: " + str(lst_transform))
 
                 self.poseParser.parse_pose_input(convChannel, lst_to_src_azimuth, lst_to_src_elevation)
 
