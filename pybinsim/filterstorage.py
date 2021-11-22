@@ -195,7 +195,7 @@ class FilterStorage(object):
             if line.startswith('HPFILTER'):
                 if self.useHeadphoneFilter:
                     self.log.info("Loading headphone filter: {}".format(filter_path))
-                    self.headphone_filter = Filter(self.load_filter(filter_path), self.headphone_ir_blocks, self.block_size)
+                    self.headphone_filter = Filter(self.load_filter(filter_path, FilterType.Filter), self.headphone_ir_blocks, self.block_size)
                     self.headphone_filter.storeInFDomain(self.hp_filter_fftw_plan)
                     continue
                 else:
@@ -228,7 +228,7 @@ class FilterStorage(object):
                     filter_pose = Pose.from_filterValueList(filter_value_list)
                 else:
                     self.log.info("Skipping LATEREVERB filter: {}".format(filter_path))
-                continue
+                    continue
             else:
                 filter_type = FilterType.Undefined
                 raise RuntimeError("Filter indentifier wrong or missing")
@@ -262,7 +262,7 @@ class FilterStorage(object):
             self.log.debug(f'Loading {filter_path}')
             if filter_type == FilterType.Filter:
                 # preprocess filters and put them in a dict
-                current_filter = Filter(self.load_filter(filter_path), self.ir_blocks, self.block_size)
+                current_filter = Filter(self.load_filter(filter_path, filter_type), self.ir_blocks, self.block_size)
                 
                 # apply fade out to all filters
                 current_filter.apply_fadeout(self.crossFadeOut)
@@ -274,7 +274,7 @@ class FilterStorage(object):
             
             if filter_type == FilterType.LateReverbFilter:
                 # preprocess late reverb filters and put them in a separate dict
-                current_filter = Filter(self.load_filter(filter_path), self.late_ir_blocks, self.block_size)
+                current_filter = Filter(self.load_filter(filter_path, filter_type), self.late_ir_blocks, self.block_size)
                 
                 # apply fade in to all late reverb filters
                 current_filter.apply_fadein(self.crossFadeIn)
@@ -309,7 +309,7 @@ class FilterStorage(object):
             self.log.warning('Filter not found: key: {}'.format(key))
             return self.default_filter
 
-    def get_late_Reverb_filter(self, pose):
+    def get_late_reverb_filter(self, pose):
         key = pose.create_key()
         
         if key in self.late_reverb_filter_dict:
@@ -329,20 +329,28 @@ class FilterStorage(object):
 
         return self.headphone_filter
 
-    def load_filter(self, filter_path):
+    def load_filter(self, filter_path, filter_type):
 
         current_filter, fs = sf.read(filter_path, dtype='float32')
 
         filter_size = np.shape(current_filter)
 
         ## Question: is this still needed?
-        # Fill filter with zeros if to short
-        if filter_size[0] < self.ir_size:
-            self.log.warning('Filter too short: Fill up with zeros')
-            current_filter = np.concatenate((current_filter, np.zeros(
-                (self.ir_size - filter_size[0], 2), np.float32)), 0)
-        if filter_size[0] > self.ir_size:
-            self.log.warning('Filter too long: shorten')
-            current_filter = current_filter[:self.ir_size]
+        
+        if not self.useSplittedFilters:
+            # Fill filter with zeros if to short
+            if filter_size[0] < self.ir_size:
+                self.log.warning('Filter too short: Fill up with zeros')
+                current_filter = np.concatenate((current_filter, np.zeros(
+                    (self.ir_size - filter_size[0], 2), np.float32)), 0)
+                
+        if filter_type == FilterType.Filter:
+            if filter_size[0] > self.ir_size:
+                self.log.warning('Filter too long: shorten')
+                current_filter = current_filter[:self.ir_size]
+        elif filter_type == FilterType.LateReverbFilter:
+            if filter_size[0] > self.lateReverbSize:
+                self.log.warning('Reverb Filter too long: shorten')
+                current_filter = current_filter[:self.lateReverbSize]
 
         return current_filter
