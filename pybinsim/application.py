@@ -46,6 +46,16 @@ def parse_boolean(any_value):
 
     return None
 
+def quantize_azimuth(azimuth_in):
+    # assume 5 degree steps 
+    azimuth_out = int(round(azimuth_in / 5.0) * 5);
+    if azimuth_out == 360:
+        azimuth_out = 0
+    return azimuth_out 
+
+def quantize_elevation(elevation_in):
+    elevation_out = int(0)
+    return elevation_out
 
 class BinSimConfig(object):
     def __init__(self):
@@ -166,19 +176,33 @@ class BinSim(object):
                 in_buf = memoryview(message_frame)
 
                 stereo_audio_in = np.frombuffer(in_buf, dtype=np.float32).reshape((self.blockSize, self.inChannels))
-                # take first channel of input only
+                # take first channel of input only as input for convolution
                 self.block[:] = stereo_audio_in[:,0]
 
-                # get channel id from second buffer element
-                convChannel = int(stereo_audio_in[0,1])
-                azimuth=int(stereo_audio_in[1,1]);
-                elevation=int(stereo_audio_in[2,1]);
+                # parse audio packet metadata from second input channel
+                convChannel          = int(stereo_audio_in[0,1])
+                lst_to_src_azimuth   = quantize_azimuth  ( stereo_audio_in[1,1] );
+                lst_to_src_elevation = quantize_elevation( stereo_audio_in[2,1] );
+                src_to_lst_azimuth   = quantize_azimuth  ( stereo_audio_in[3,1] );
+                src_to_lst_elevation = quantize_elevation( stereo_audio_in[4,1] );
+                lst_to_src_dist      = stereo_audio_in[5,1];
 
+                # read rowmajor matrices from audio packet
+                src_transform = stereo_audio_in[6:22, 1].reshape(4,4);
+                lst_transform = stereo_audio_in[22:38,1].reshape(4,4);
+
+                # correct 30 degree offset - not needed anymore
+                #lst_to_src_azimuth = (lst_to_src_azimuth + 30) % 360
+                
                 # print("Channel: " + str(convChannel))
-                # print("Angle: " + str(azimuth) + " / " + str(elevation))
+                # print("Listener to source Angle: " + str(lst_to_src_azimuth) + " / " + str(lst_to_src_elevation))
+                # print("Source to listener Angle: " + str(src_to_lst_azimuth) + " / " + str(src_to_lst_elevation))
+                # print("Source to listener distance: " + str(lst_to_src_dist))
+                # print("Source transform: " + str(src_transform))
+                # print("Listener transform: " + str(lst_transform))
 
-                self.poseParser.parse_pose_input(convChannel, azimuth, elevation)
-
+                self.poseParser.parse_pose_input(convChannel, lst_to_src_azimuth, lst_to_src_elevation)
+                
                 self.process_block(convChannel);
 
                 #reply to client
