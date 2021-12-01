@@ -157,43 +157,60 @@ class BinSim(object):
             #TODO avoid copying message
             try:
                 message_frame = self.zmq_socket.recv(flags=zmq.NOBLOCK,copy=False)
+
                 print("Received message frame with " + str(len(message_frame)) + " bytes")
 
                 # non copying buffer view, but is read only...alternative for this?
                 in_buf = memoryview(message_frame)
 
-                stereo_audio_in = np.frombuffer(in_buf, dtype=np.float32).reshape((self.blockSize, self.inChannels))
-                # take first channel of input only as input for convolution
-                self.block[:] = stereo_audio_in[:,0]
+                stereo_audio_in_1d_buffer = np.frombuffer(in_buf, dtype=np.float32)
 
-                # parse audio packet metadata from second input channel
-                convChannel          = int(stereo_audio_in[0,1])
-                lst_to_src_azimuth   = quantize_azimuth  ( stereo_audio_in[1,1] );
-                lst_to_src_elevation = quantize_elevation( stereo_audio_in[2,1] );
-                src_to_lst_azimuth   = quantize_azimuth  ( stereo_audio_in[3,1] );
-                src_to_lst_elevation = quantize_elevation( stereo_audio_in[4,1] );
-                lst_to_src_dist      = stereo_audio_in[5,1];
+                if stereo_audio_in_1d_buffer.size == self.blockSize * self.inChannels:
 
-                # read rowmajor matrices from audio packet
-                src_transform = stereo_audio_in[6:22, 1].reshape(4,4);
-                lst_transform = stereo_audio_in[22:38,1].reshape(4,4);
 
-                # correct 30 degree offset
-                lst_to_src_azimuth = (lst_to_src_azimuth + 30) % 360
-                
-                # print("Channel: " + str(convChannel))
-                # print("Listener to source Angle: " + str(lst_to_src_azimuth) + " / " + str(lst_to_src_elevation))
-                # print("Source to listener Angle: " + str(src_to_lst_azimuth) + " / " + str(src_to_lst_elevation))
-                # print("Source to listener distance: " + str(lst_to_src_dist))
-                # print("Source transform: " + str(src_transform))
-                # print("Listener transform: " + str(lst_transform))
+                    stereo_audio_in = stereo_audio_in_1d_buffer.reshape((self.blockSize, self.inChannels))
+                    # take first channel of input only as input for convolution
+                    self.block[:] = stereo_audio_in[:,0]
 
-                self.poseParser.parse_pose_input(convChannel, lst_to_src_azimuth, lst_to_src_elevation)
+                    # parse audio packet metadata from second input channel
+                    convChannel          = int(stereo_audio_in[0,1])
+                    lst_to_src_azimuth   = quantize_azimuth  ( stereo_audio_in[1,1] );
+                    lst_to_src_elevation = quantize_elevation( stereo_audio_in[2,1] );
+                    src_to_lst_azimuth   = quantize_azimuth  ( stereo_audio_in[3,1] );
+                    src_to_lst_elevation = quantize_elevation( stereo_audio_in[4,1] );
+                    lst_to_src_dist      = stereo_audio_in[5,1];
 
-                self.process_block(convChannel);
+                    # read rowmajor matrices from audio packet
+                    src_transform = stereo_audio_in[6:22, 1].reshape(4,4);
+                    lst_transform = stereo_audio_in[22:38,1].reshape(4,4);
 
-                #reply to client
-                self.zmq_socket.send(self.result, copy=False);
+                    # correct 30 degree offset
+                    lst_to_src_azimuth = (lst_to_src_azimuth + 30) % 360
+                    
+                    # print("Channel: " + str(convChannel))
+                    # print("Listener to source Angle: " + str(lst_to_src_azimuth) + " / " + str(lst_to_src_elevation))
+                    # print("Source to listener Angle: " + str(src_to_lst_azimuth) + " / " + str(src_to_lst_elevation))
+                    # print("Source to listener distance: " + str(lst_to_src_dist))
+                    # print("Source transform: " + str(src_transform))
+                    # print("Listener transform: " + str(lst_transform))
+
+                    self.poseParser.parse_pose_input(convChannel, lst_to_src_azimuth, lst_to_src_elevation)
+
+                    self.process_block(convChannel);
+
+                    #reply to client
+                    self.zmq_socket.send(self.result, copy=False);
+
+                else:
+                    print("ERROR: received packet has incorrect size")
+                    # assume 2 input channels, send back first channel
+                    stereo_audio_in = stereo_audio_in_1d_buffer.reshape((int(stereo_audio_in_1d_buffer.size / 2), int(2)))
+
+                    first_channel_doubled = np.empty([int(stereo_audio_in_1d_buffer.size / 2), int(2)], dtype=np.float32)
+                    first_channel_doubled[:,0] = np.copy(stereo_audio_in[:,0])
+                    first_channel_doubled[:,1] = np.copy(stereo_audio_in[:,0])
+
+                    self.zmq_socket.send(first_channel_doubled, copy=False);
 
             except zmq.ZMQError:
                 pass
