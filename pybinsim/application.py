@@ -163,25 +163,12 @@ class BinSim(object):
                 if len(message_frame) == 9:
                     print("HANDSHAKE")
                     self.zmq_socket.send(b'handshake received')
-                
+
                 else:
 
                     # non copying buffer view, but is read only...alternative for this?
                     in_buf = memoryview(message_frame)
-
-                    # print("elements: " + str(in_buf.itemsize * len(view))
-
-                    # # check if this is a handshake message
-                    # msg_string = str(in_buf.tobytes())
-                    # print(msg_string)
-                    # if (msg_string.find(b'handshake') == 0):
-                    #     print("found HANDSHAKE string")
-                    #     self.zmq_socket.send("handshake received");
-
-                    # if (msg_string == b'handshake':
-                    #     print("found HANDSHAKE string by equality")
-
-
+                    
                     stereo_audio_in_1d_buffer = np.frombuffer(in_buf, dtype=np.float32)
 
                     if stereo_audio_in_1d_buffer.size == self.blockSize * self.inChannels:
