@@ -190,8 +190,18 @@ class BinSim(object):
                 src_to_lst_elevation = stereo_audio_in[4, 1]
                 lst_to_src_dist      = stereo_audio_in[5, 1]
 
-                # hrtf fitler are reversed...
+                self.log.info(f'lst->src azi: {lst_to_src_azimuth}')
+                self.log.info(f'lst->src ele: {lst_to_src_elevation}')
+                self.log.info(f'src->lst azi: {src_to_lst_azimuth}')
+                self.log.info(f'src->lst ele: {src_to_lst_elevation}')
+
+                # hrtf filters are reversed...
                 lst_to_src_azimuth = (360 - lst_to_src_azimuth) % 360
+
+                # elevation filters range from 0 to 180, not -90 to 90
+                lst_to_src_elevation += 90
+                src_to_lst_elevation += 90
+
 
                 # TODO: Change range perhaps...
                 reference_dist = 1.25
