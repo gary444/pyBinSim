@@ -304,7 +304,7 @@ class BinSim(object):
         
         # Apply headphone filter
         if self.config.get('useHeadphoneFilter'):
-            self.result[:, 0], self.result[:, 1] = self.convolverHP.process(self.result)
+            self.result[:, 0], self.result[:, 1], _ = self.convolverHP.process(self.result)
             
         # Scale data if required
         self.result = np.multiply(
