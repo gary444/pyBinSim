@@ -246,7 +246,7 @@ class FilterStorage(object):
                 filter_pose = Pose.from_filterValueList(filter_value_list)
             elif line.startswith('LATEREVERB'):
                 if self.useSplittedFilters:
-                    #self.log.info("Loading late reverb filter: {}".format(filter_path))
+                    self.log.info("Loading late reverb filter: {}".format(filter_path))
                     filter_type = FilterType.LateReverbFilter
                     filter_value_list = tuple(line_content[1:-1])
                     filter_pose = Pose.from_filterValueList(filter_value_list)
@@ -362,7 +362,7 @@ class FilterStorage(object):
         key = newpose.create_key()
 
         if key in self.filter_dict:
-            #self.log.info("Filter found: key: {}".format(key))
+            self.log.info("Filter found: key: {}".format(key))
             result_filter = self.filter_dict.get(key)
             if result_filter.filename is not None:
                 self.log.info("   use file:: {}".format(result_filter.filename))
@@ -380,7 +380,7 @@ class FilterStorage(object):
         key = newpose.create_key()
         
         if key in self.late_reverb_filter_dict:
-            #self.log.info(f'Late Reverb Filter found: key: {key}')
+            self.log.info(f'Late Reverb Filter found: key: {key}')
             return self.late_reverb_filter_dict.get(key)
         else:
             self.log.warning(f'Late Reverb Filter not found: key: {key}')
@@ -395,7 +395,7 @@ class FilterStorage(object):
         key = newpose.create_key()
 
         if key in self.directivity_dict:
-            #self.log.info(f'Directivity Filter found: key: {key}')
+            self.log.info(f'Directivity Filter found: key: {key}')
             return self.directivity_dict.get(key)
         else:
             self.log.warning(f'Directivity Filter not found: key: {key}')
