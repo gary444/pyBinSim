@@ -33,6 +33,8 @@ import time
 from pybinsim.pose import Pose
 from pybinsim.utility import total_size
 
+from scipy.spatial import KDTree
+
 nThreads = mp.cpu_count()
 
 
@@ -105,13 +107,12 @@ class FilterType(enum.Enum):
     Undefined = 0
     Filter = 1
     LateReverbFilter = 2
+    Directivity = 3
 
 class FilterStorage(object):
     """ Class for storing all filters mentioned in the filter list """
 
-    #def __init__(self, irSize, block_size, filter_list_name):
-    def __init__(self, irSize, block_size, filter_list_name, useHeadphoneFilter = False, headphoneFilterSize = 0, useSplittedFilters = False, lateReverbSize = 0):
-
+    def __init__(self, irSize, block_size, filter_list_name, useHeadphoneFilter = False, headphoneFilterSize = 0, useSplittedFilters = False, lateReverbSize = 0, directivitySize = 0):
         self.log = logging.getLogger("pybinsim.FilterStorage")
         self.log.info("FilterStorage: init")
         
@@ -154,7 +155,17 @@ class FilterStorage(object):
 
             self.default_late_reverb_filter = Filter(np.zeros((self.lateReverbSize, 2), dtype='float32'), self.late_ir_blocks, self.block_size)
             self.default_late_reverb_filter.storeInFDomain(self.late_filter_fftw_plan)
-        
+
+        # directivity
+        self.directivitySize = directivitySize
+        self.dir_ir_blocks = directivitySize // block_size
+        self.filter_fftw_plan = pyfftw.builders.rfft(np.zeros((self.dir_ir_blocks, self.block_size), dtype='float32'),
+                                                     n=self.block_size * 2, axis=1, overwrite_input=False,
+                                                     threads=nThreads, planner_effort=fftw_planning_effort,
+                                                     avoid_copy=False)
+        self.default_directivity_filter = Filter(np.zeros((self.directivitySize, 2), dtype='float32'), self.dir_ir_blocks, self.block_size)
+        self.default_directivity_filter.storeInFDomain(self.filter_fftw_plan)
+
         self.filter_list_path = filter_list_name
         self.filter_list = open(self.filter_list_path, 'r')
 
@@ -163,6 +174,15 @@ class FilterStorage(object):
         # format: [key,{filter}]
         self.filter_dict = {}
         self.late_reverb_filter_dict = {}
+        self.directivity_dict = {}
+
+        # Lists and KDTrees for filter searches
+        self.filter_arr = list(list())
+        self.late_reverb_arr = list(list())
+        self.directivity_arr = list(list())
+        self.filter_tree = 0
+        self.late_reverb_tree = 0
+        self.directivity_tree = 0
 
         # Start to load filters
         self.load_filters()
@@ -229,12 +249,14 @@ class FilterStorage(object):
                 else:
                     self.log.info("Skipping LATEREVERB filter: {}".format(filter_path))
                     continue
+            elif line.startswith('DIRECTIVITY'):
+                filter_type = FilterType.Directivity
+                filter_value_list = tuple(line_content[1:-1])
+                filter_pose = Pose.from_filterValueList(filter_value_list)
             else:
                 filter_type = FilterType.Undefined
-                raise RuntimeError("Filter indentifier wrong or missing")
+                raise RuntimeError("Filter identifier wrong or missing")
 
-
-            #yield pose, filter_path
             yield filter_pose, filter_path, filter_type
 
     def load_filters(self):
@@ -265,25 +287,52 @@ class FilterStorage(object):
                 current_filter = Filter(self.load_filter(filter_path, filter_type), self.ir_blocks, self.block_size)
                 
                 # apply fade out to all filters
-                current_filter.apply_fadeout(self.crossFadeOut)
+                #current_filter.apply_fadeout(self.crossFadeOut)
+
                 current_filter.storeInFDomain(self.filter_fftw_plan)
                 
                 # create key and store in dict
                 key = filter_pose.create_key()
                 self.filter_dict.update({key: current_filter})
+
+                # add pose values to filter array
+                self.filter_arr.append(list(map(float, filter_pose.orientation[0:2])))
             
             if filter_type == FilterType.LateReverbFilter:
                 # preprocess late reverb filters and put them in a separate dict
                 current_filter = Filter(self.load_filter(filter_path, filter_type), self.late_ir_blocks, self.block_size)
                 
                 # apply fade in to all late reverb filters
-                current_filter.apply_fadein(self.crossFadeIn)
+                #current_filter.apply_fadein(self.crossFadeIn)
+
                 current_filter.storeInFDomain(self.late_filter_fftw_plan)
                 
                 #create key and store in dict
                 key = filter_pose.create_key()
                 self.late_reverb_filter_dict.update({key: current_filter})
-        
+
+                # add pose values to filter array
+                self.late_reverb_arr.append(list(map(float, filter_pose.orientation[0:2])))
+
+            if filter_type == FilterType.Directivity:
+                # preprocess late reverb filters and put them in a separate dict
+                current_filter = Filter(self.load_filter(filter_path, filter_type), self.dir_ir_blocks, self.block_size)
+
+                current_filter.storeInFDomain(self.filter_fftw_plan)
+
+                # create key and store in dict
+                key = filter_pose.create_key()
+                self.directivity_dict.update({key: current_filter})
+
+                # add pose values to filter array
+                self.directivity_arr.append(list(map(float, filter_pose.orientation[0:2])))
+
+        # build KDTrees for filter list items to do nearest neighbour search
+        # TODO: KDTree for late reverb probably not needed, but... meh... maybe in the future it will
+        self.filter_tree = KDTree(self.filter_arr)
+        self.late_reverb_tree = KDTree(self.late_reverb_arr)
+        self.directivity_tree = KDTree(self.directivity_arr)
+
         end = time.time()
         self.log.info("Finished loading filters in" + str(end-start) + "sec.")
         #self.log.info("filter_dict size: {}MiB".format(total_size(self.filter_dict) // 1024 // 1024))
@@ -297,7 +346,12 @@ class FilterStorage(object):
         :return: corresponding filter for pose
         """
 
-        key = pose.create_key()
+        find_me = pose.orientation[0:2]
+        d, i = self.filter_tree.query(find_me)
+        fvl = self.filter_arr[i] + [0, 0, 0, 0, 0, 0, 0]
+        newpose = Pose.from_filterValueList(fvl)
+
+        key = newpose.create_key()
 
         if key in self.filter_dict:
             self.log.info("Filter found: key: {}".format(key))
@@ -310,7 +364,12 @@ class FilterStorage(object):
             return self.default_filter
 
     def get_late_reverb_filter(self, pose):
-        key = pose.create_key()
+        find_me = pose.orientation[0:2]
+        d, i = self.late_reverb_tree.query(find_me)
+        fvl = list(map(int, self.late_reverb_arr[i] + [0, 0, 0, 0, 0, 0, 0]))
+        newpose = Pose.from_filterValueList(fvl)
+
+        key = newpose.create_key()
         
         if key in self.late_reverb_filter_dict:
             self.log.info(f'Late Reverb Filter found: key: {key}')
@@ -319,9 +378,23 @@ class FilterStorage(object):
             self.log.warning(f'Late Reverb Filter not found: key: {key}')
             return self.default_late_reverb_filter
 
+    def get_directivity_filter(self, pose):
+        find_me = pose.orientation[0:2]
+        d, i = self.directivity_tree.query(find_me)
+        fvl = self.directivity_arr[i] + [0, 0, 0, 0, 0, 0, 0]
+        newpose = Pose.from_filterValueList(fvl)
+
+        key = newpose.create_key()
+
+        if key in self.directivity_dict:
+            self.log.info(f'Directivity Filter found: key: {key}')
+            return self.directivity_dict.get(key)
+        else:
+            self.log.warning(f'Directivity Filter not found: key: {key}')
+            return self.default_directivity_filter
+
     def close(self):
         self.log.info('FilterStorage: close()')
-        # TODO: do something in here?
 
     def get_headphone_filter(self):
         if self.headphone_filter is None:
@@ -330,21 +403,22 @@ class FilterStorage(object):
         return self.headphone_filter
 
     def load_filter(self, filter_path, filter_type):
-
-        current_filter, fs = sf.read(filter_path, dtype='float32')
+        # Directivity filters are mono only
+        if filter_type != FilterType.Directivity:
+            current_filter, fs = sf.read(filter_path, dtype='float32')
+        else:
+            current_filter, fs = sf.read(filter_path, dtype='float32', always_2d=True)
+            # for some reason always_2d does nothing...
+            current_filter = np.column_stack((current_filter, current_filter))
 
         filter_size = np.shape(current_filter)
 
-        ## Question: is this still needed?
-        
-        if not self.useSplittedFilters:
+        if filter_type == FilterType.Filter:
             # Fill filter with zeros if to short
             if filter_size[0] < self.ir_size:
                 self.log.warning('Filter too short: Fill up with zeros')
                 current_filter = np.concatenate((current_filter, np.zeros(
                     (self.ir_size - filter_size[0], 2), np.float32)), 0)
-                
-        if filter_type == FilterType.Filter:
             if filter_size[0] > self.ir_size:
                 self.log.warning('Filter too long: shorten')
                 current_filter = current_filter[:self.ir_size]
@@ -352,5 +426,13 @@ class FilterStorage(object):
             if filter_size[0] > self.lateReverbSize:
                 self.log.warning('Reverb Filter too long: shorten')
                 current_filter = current_filter[:self.lateReverbSize]
+        elif filter_type == FilterType.Directivity:
+            if filter_size[0] > self.directivitySize:
+                self.log.warning('Directivity filter too long: shorten')
+                current_filter = current_filter[:self.directivitySize]
+            elif filter_size[0] < self.directivitySize:
+                self.log.warning('Directivity filter too short: Fill up with zeroes')
+                current_filter = np.concatenate((current_filter, np.zeros(
+                    (self.directivitySize - filter_size[0], 2), np.float32)), 0)
 
         return current_filter

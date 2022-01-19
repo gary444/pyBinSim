@@ -46,11 +46,10 @@ def parse_boolean(any_value):
 
     return None
 
+# TODO: These two functions are no longer needed
 def quantize_azimuth(azimuth_in):
-    # assume 5 degree steps 
-    azimuth_out = int(round(azimuth_in / 5.0) * 5);
-    if azimuth_out == 360:
-        azimuth_out = 0
+    # assume 5 degree steps
+    azimuth_out = int(round(azimuth_in / 5.0) * 5) % 360
     return azimuth_out 
 
 def quantize_elevation(elevation_in):
@@ -76,6 +75,7 @@ class BinSimConfig(object):
                                   'loopSound': True,
                                   'useSplittedFilters': False,
                                   'lateReverbSize': 16384,
+                                  'dirFilterSize': 16384,
                                   'pauseConvolution': False,
                                   'pauseAudioPlayback': False,
                                   'serverIPAddress': '127.0.0.1',
@@ -180,33 +180,45 @@ class BinSim(object):
                 self.block[:] = stereo_audio_in[:,0]
 
                 # parse audio packet metadata from second input channel
-                convChannel          = int(stereo_audio_in[0,1])
-                lst_to_src_azimuth   = quantize_azimuth  ( stereo_audio_in[1,1] );
-                lst_to_src_elevation = quantize_elevation( stereo_audio_in[2,1] );
-                src_to_lst_azimuth   = quantize_azimuth  ( stereo_audio_in[3,1] );
-                src_to_lst_elevation = quantize_elevation( stereo_audio_in[4,1] );
-                lst_to_src_dist      = stereo_audio_in[5,1];
+                convChannel          = int(stereo_audio_in[0, 1])
+                lst_to_src_azimuth   = stereo_audio_in[1, 1]
+                lst_to_src_elevation = stereo_audio_in[2, 1]
+                src_to_lst_azimuth   = stereo_audio_in[3, 1]
+                src_to_lst_elevation = stereo_audio_in[4, 1]
+                lst_to_src_dist      = stereo_audio_in[5, 1]
+
+                #self.log.info(f'lst->src azi: {lst_to_src_azimuth}')
+                #self.log.info(f'lst->src ele: {lst_to_src_elevation}')
+                #self.log.info(f'src->lst azi: {src_to_lst_azimuth}')
+                #self.log.info(f'src->lst ele: {src_to_lst_elevation}')
+                #self.log.info(f'distance: {lst_to_src_dist}')
+
+                # hrtf filters are reversed...
+                lst_to_src_azimuth = (360 - lst_to_src_azimuth) % 360
+
+                # elevation filters range from 0 to 180, not -90 to 90
+                lst_to_src_elevation += 90
+                src_to_lst_elevation += 90
+
+
+                # TODO: Change range perhaps...
+                reference_dist = 1.25
+                max_dist = 10
+                min_dist = 0.01
+                relative_dist = reference_dist / lst_to_src_dist
+                relative_dist = min(max(min_dist, relative_dist), max_dist)
 
                 # read rowmajor matrices from audio packet
-                src_transform = stereo_audio_in[6:22, 1].reshape(4,4);
-                lst_transform = stereo_audio_in[22:38,1].reshape(4,4);
+                src_transform = stereo_audio_in[6:22, 1] .reshape(4, 4)
+                lst_transform = stereo_audio_in[22:38, 1].reshape(4, 4)
 
-                # correct 30 degree offset - not needed anymore
-                #lst_to_src_azimuth = (lst_to_src_azimuth + 30) % 360
-                
-                # print("Channel: " + str(convChannel))
-                # print("Listener to source Angle: " + str(lst_to_src_azimuth) + " / " + str(lst_to_src_elevation))
-                # print("Source to listener Angle: " + str(src_to_lst_azimuth) + " / " + str(src_to_lst_elevation))
-                # print("Source to listener distance: " + str(lst_to_src_dist))
-                # print("Source transform: " + str(src_transform))
-                # print("Listener transform: " + str(lst_transform))
+                self.poseParser.parse_pose_input(convChannel, lst_to_src_azimuth, lst_to_src_elevation,
+                                                 src_to_lst_azimuth, src_to_lst_elevation)
 
-                self.poseParser.parse_pose_input(convChannel, lst_to_src_azimuth, lst_to_src_elevation)
-                
-                self.process_block(convChannel);
+                self.process_block(convChannel, relative_dist)
 
                 #reply to client
-                self.zmq_socket.send(self.result, copy=False);
+                self.zmq_socket.send(self.result, copy=False)
 
             except zmq.ZMQError:
                 pass
@@ -224,7 +236,8 @@ class BinSim(object):
                                       self.config.get('useHeadphoneFilter'),
                                       self.config.get('headphoneFilterSize'),
                                       self.config.get('useSplittedFilters'),
-                                      self.config.get('lateReverbSize'))
+                                      self.config.get('lateReverbSize'),
+                                      self.config.get('dirFilterSize'))
 
         # Create N convolvers depending on the number of wav channels
         self.log.info('Number of input channels: ' + str(self.inChannels))
@@ -258,20 +271,27 @@ class BinSim(object):
             if self.convolverHP:
                 self.convolverHP.close()
 
-    def process_block(self, convChannel):
+    def process_block(self, convChannel, dist):
         # Update Filter and run convolver with the current block
         
         # Get new Filter
+        # TODO: change filterValueList to something usable - where, though?
         if self.poseParser.is_filter_update_necessary(convChannel):
             filterValueList = self.poseParser.get_current_values(convChannel)
             filter = self.filterStorage.get_filter(Pose.from_filterValueList(filterValueList))
-            self.convolvers[convChannel].setIR(filter, self.config.get('enableCrossfading'))
+            fvl = list(filterValueList[3:]) + [ 0, 0, 0]
+            dir_filter = self.filterStorage.get_directivity_filter(Pose.from_filterValueList(fvl))
+            self.convolvers[convChannel].setIR(filter, self.config.get('enableCrossfading'), dist, dir_filter)
+
+            if self.config.get('useSplittedFilters'):
+                lr_filter = self.filterStorage.get_late_reverb_filter(Pose.from_filterValueList(filterValueList))
+                self.convolvers[convChannel].setLateReverb(lr_filter, self.config.get('enableCrossfading'))
         
         self.result[:, 0], self.result[:, 1] = self.convolvers[convChannel].process(self.block)
         
         # Apply headphone filter
         if self.config.get('useHeadphoneFilter'):
-            self.result[:, 0], self.result[:, 1] = self.convolverHP.process(self.result)
+            self.result[:, 0], self.result[:, 1], _ = self.convolverHP.process(self.result)
             
         # Scale data if required
         self.result = np.multiply(

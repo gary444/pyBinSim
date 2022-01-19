@@ -199,36 +199,38 @@ class ConvolverFFTW(object):
     def buildFilters(self):
         """
         Build filter from early and late part
-
         :param filter:
         :return: transformed filter
         """
         
         # Attach late part; Filter will be shorter by one block afterwards
         if self.useSplittedFilters and self.buildNewFilter:
-            # Overlap last block of early filters with first block of late reverb
-            self.TF_left_blocked[self.late_early_transition-1, :] = np.add(self.TF_left_blocked[self.late_early_transition-1, :], self.TF_late_left_blocked[0, :])
-            self.TF_right_blocked[self.late_early_transition-1, :] = np.add(self.TF_right_blocked[self.late_early_transition-1, :], self.TF_late_right_blocked[0, :])
+            # Overlapping of direct and late filters is not needed in this scenario
             
             # Add all other late filter blocks
-            self.TF_left_blocked[self.late_early_transition:-1, :] = self.TF_late_left_blocked[1:, :]
-            self.TF_right_blocked[self.late_early_transition:-1, :] = self.TF_late_right_blocked[1:, :]
+            self.TF_left_blocked[self.late_early_transition:, :] = self.TF_late_left_blocked[0:, :]
+            self.TF_right_blocked[self.late_early_transition:, :] = self.TF_late_right_blocked[0:, :]
 
             self.buildNewFilter = False
 
-    def setIR(self, filter, do_interpolation):
+    def setIR(self, filter, do_interpolation, dist=1, dir_filter=1):
         """
         Hand over a new set of filters to the convolver
         and define if you want to perform an interpolation/crossfade
 
         :param filter:
         :param do_interpolation:
+        :param dist: distance between source and listener. Assumed 1 if not given.
+        :param dir_filter: directivity filter. Assumed 1 if not given.
         :return: None
         """
         
         left, right = filter.getFilterFD()
-        self.TF_left_blocked[0:self.late_early_transition, :] = left
-        self.TF_right_blocked[0:self.late_early_transition, :] = right
+        dir_left, dir_right = dir_filter.getFilterFD()
+
+        # TODO: replace with numpy multiplication
+        self.TF_left_blocked[0:self.late_early_transition, :] = left * dir_left * dist
+        self.TF_right_blocked[0:self.late_early_transition, :] = right * dir_right * dist
 
         # Interpolation means cross fading the output blocks (linear interpolation)
         self.interpolate = do_interpolation

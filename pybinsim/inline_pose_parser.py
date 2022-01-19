@@ -4,31 +4,22 @@ import numpy as np
 
 
 class InlinePoseParser(object):
-	azimuthAngles = range(0, 360, 5)
-	#elevationAngles = range(0, 360, 30)
-
 	def __init__(self, maxChannels):
 
 		self.log = logging.getLogger("pybinsim.InlinePoseParser")
 		self.log.info("InlinePoseParser: init")
 
-		# Default values; Stores filter keys for all channles/convolvers
+		# Default values; Stores filter keys for all channels/convolvers
 		self.filtersUpdated = [True] * maxChannels
 
 		self.defaultValue = (0, 0, 0, 0, 0, 0, 0, 0, 0)
 		self.valueList = [self.defaultValue] * maxChannels
 
-	# def parse_pose_input(self, poseData):
-	def parse_pose_input(self, channel, azimuth, elevation):
+	def parse_pose_input(self, channel, azi_lst, ele_lst, azi_src, ele_src):
 		""" Compare new pose data with existing pose, determine if an update is needed """
-
-		real_azi = min(InlinePoseParser.azimuthAngles, key=lambda x: abs(x - azimuth))
-		#real_ele = min(InlinePoseParser.elevationAngles, key=lambda x: abs(x - elevation))
-		real_ele = 0
 		
 		# we are just using first 2 elements of valueList for now
-		#poseData = (azimuth, elevation)
-		poseData = (real_azi, real_ele)
+		poseData = (azi_lst, ele_lst, 0, azi_src, ele_src, 0, 0, 0, 0)
 
 		# compare poseData with valueList for channel
 		if poseData != self.valueList[channel][:len(poseData)]:
