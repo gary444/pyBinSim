@@ -208,20 +208,12 @@ class ConvolverFFTW(object):
         if self.useSplittedFilters and self.buildNewFilter:
             # TODO: check if concatenate does the right thing
             # Overlap last block of early filters with first block of late reverb
-            #print(type(self.TF_left_blocked))
-            #print(self.TF_left_blocked.shape)
-            #print(type(self.TF_late_left_blocked))
-            #print(self.TF_late_left_blocked.shape)
-            #print(self.late_early_transition)
-            #x = np.concatenate((self.TF_left_blocked[self.late_early_transition-1, :], self.TF_late_left_blocked[0, :]))
-            #print(x.shape)
-            #print(self.TF_left_blocked[self.late_early_transition-1, :].shape)
             #self.TF_left_blocked[self.late_early_transition-1, :] = np.concatenate((self.TF_left_blocked[self.late_early_transition-1, :], self.TF_late_left_blocked[0, :]))
             #self.TF_right_blocked[self.late_early_transition-1, :] = np.concatenate((self.TF_right_blocked[self.late_early_transition-1, :], self.TF_late_right_blocked[0, :]))
             
             # Add all other late filter blocks
-            self.TF_left_blocked[self.late_early_transition:-1, :] = self.TF_late_left_blocked[1:, :]
-            self.TF_right_blocked[self.late_early_transition:-1, :] = self.TF_late_right_blocked[1:, :]
+            self.TF_left_blocked[self.late_early_transition:, :] = self.TF_late_left_blocked[0:, :]
+            self.TF_right_blocked[self.late_early_transition:, :] = self.TF_late_right_blocked[0:, :]
 
             self.buildNewFilter = False
 

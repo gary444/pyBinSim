@@ -445,7 +445,7 @@ class FilterStorage(object):
                 self.log.warning('Directivity filter too long: shorten')
                 current_filter = current_filter[:self.directivitySize]
             elif filter_size[0] < self.directivitySize:
-                #self.log.warning('Directivity filter too short: Fill up with zeroes')
+                self.log.warning('Directivity filter too short: Fill up with zeroes')
                 current_filter = np.concatenate((current_filter, np.zeros(
                     (self.directivitySize - filter_size[0], 2), np.float32)), 0)
         # TODO: Check if shorten filter is needed for directivity filters

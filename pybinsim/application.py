@@ -190,6 +190,9 @@ class BinSim(object):
                 src_to_lst_elevation = stereo_audio_in[4, 1]
                 lst_to_src_dist      = stereo_audio_in[5, 1]
 
+                # hrtf fitler are reversed...
+                lst_to_src_azimuth = (360 - lst_to_src_azimuth) % 360
+
                 # TODO: Change range perhaps...
                 reference_dist = 1.25
                 max_dist = 10
@@ -278,12 +281,13 @@ class BinSim(object):
         if self.poseParser.is_filter_update_necessary(convChannel):
             filterValueList = self.poseParser.get_current_values(convChannel)
             filter = self.filterStorage.get_filter(Pose.from_filterValueList(filterValueList))
-            dir_filter = self.filterStorage.get_directivity_filter(Pose.from_filterValueList(filterValueList))
+            fvl = list(filterValueList[3:]) + [ 0, 0, 0]
+            dir_filter = self.filterStorage.get_directivity_filter(Pose.from_filterValueList(fvl))
             self.convolvers[convChannel].setIR(filter, self.config.get('enableCrossfading'), dist, dir_filter)
 
             if self.config.get('useSplittedFilters'):
                 lr_filter = self.filterStorage.get_late_reverb_filter(Pose.from_filterValueList(filterValueList))
-                self.convolvers[convChannel].setLateReverb(filter, self.config.get('enableCrossfading'))
+                self.convolvers[convChannel].setLateReverb(lr_filter, self.config.get('enableCrossfading'))
         
         self.result[:, 0], self.result[:, 1] = self.convolvers[convChannel].process(self.block)
         
