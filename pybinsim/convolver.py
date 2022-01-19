@@ -232,10 +232,10 @@ class ConvolverFFTW(object):
         left, right = filter.getFilterFD()
         dir_left, dir_right = dir_filter.getFilterFD()
 
-        #self.TF_left_blocked[0:self.late_early_transition, :] = left * dir_left * dist
-        #self.TF_right_blocked[0:self.late_early_transition, :] = right * dir_right * dist
-        self.TF_left_blocked[0:self.late_early_transition, :] = left * dist
-        self.TF_right_blocked[0:self.late_early_transition, :] = right * dist
+        self.TF_left_blocked[0:self.late_early_transition, :] = left * dir_left * dist
+        self.TF_right_blocked[0:self.late_early_transition, :] = right * dir_right * dist
+        #self.TF_left_blocked[0:self.late_early_transition, :] = left * dist
+        #self.TF_right_blocked[0:self.late_early_transition, :] = right * dist
 
         # Interpolation means cross fading the output blocks (linear interpolation)
         self.interpolate = do_interpolation
