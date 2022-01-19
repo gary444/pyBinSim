@@ -11,5 +11,6 @@ tmp/
 # virtual env
 venv*/
 
-
-signal/
+# folder holding BRIR wave files
+brirs/
+audictive/
