@@ -19,6 +19,7 @@ Assuming you are using the default command line
 python
 
 ::
+
     $ <PathToPython >= 3.6> -m venv venv
     $ venv/Scripts/activate.bat
     $ pip install pybinsim
@@ -29,6 +30,7 @@ For Powershell, the activation command is `venv/Scripts/Activate.ps1`.
 conda
 
 ::
+
     $ conda create --name binsim python>=3.6 numpy
     $ conda activate binsim
     $ pip install pybinsim
@@ -55,6 +57,7 @@ For Fedora
 python
 
 ::
+
     $ <PathToPython >= 3.6> -m venv venv
     $ source venv/bin/activate
     $ pip install pybinsim
@@ -63,6 +66,7 @@ python
 conda
 
 ::
+
     $ conda create --name binsim python>=3.6 numpy
     $ conda activate binsim
     $ pip install pybinsim
