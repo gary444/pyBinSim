@@ -31,9 +31,11 @@ conda
 
 ::
 
-    $ conda create --name binsim python>=3.6 numpy
+    $ conda create --name binsim python>=3.6 numpy pyzmq
     $ conda activate binsim
     $ pip install pybinsim
+    $ pip install pyFTTW
+    $ pip install scipy
 
 
 Linux
