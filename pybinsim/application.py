@@ -32,6 +32,10 @@ from pybinsim.inline_pose_parser import InlinePoseParser
 from pybinsim.pose import Pose
 
 
+class PyBinSimError(RuntimeError):
+    pass
+
+
 def parse_boolean(any_value):
 
     if type(any_value) == bool:
@@ -124,8 +128,12 @@ class BinSim(object):
         self.blockSize = self.config.get('blockSize')
 
         self.result = None
+        self.channel_result = None
         self.block = None
         self.stream = None
+
+        self.num_sources = 0;
+        self.packets_received = 0;
 
         self.convolverWorkers = []
         self.convolverHP, self.convolvers, self.filterStorage = self.initialize_pybinsim()
@@ -146,11 +154,13 @@ class BinSim(object):
     def init_zmq(self):
         self.log.info(("BinSim: init ZMQ, IP: {}, port {}").format(self.zmq_ip, self.zmq_port))
         self.zmq_context = zmq.Context()
-        self.zmq_socket = self.zmq_context.socket(zmq.REP)
+        self.zmq_socket = self.zmq_context.socket(zmq.PAIR)
         self.zmq_socket.bind("tcp://" + self.zmq_ip + ":" + self.zmq_port )
 
     def run_server(self):
         self.log.info("BinSim: run_server")
+
+
 
         while True:
             #wait for request from client
@@ -158,15 +168,14 @@ class BinSim(object):
             try:
                 message_frame = self.zmq_socket.recv(flags=zmq.NOBLOCK,copy=False)
 
-                print("Received message frame with " + str(len(message_frame)) + " bytes")
-
+                # print("Received message frame with " + str(len(message_frame)) + " bytes")
+                
                 # non copying buffer view, but is read only...alternative for this?
                 in_buf = memoryview(message_frame)
 
                 stereo_audio_in_1d_buffer = np.frombuffer(in_buf, dtype=np.float32)
 
                 if stereo_audio_in_1d_buffer.size == self.blockSize * self.inChannels:
-
 
                     stereo_audio_in = stereo_audio_in_1d_buffer.reshape((self.blockSize, self.inChannels))
                     # take first channel of input only as input for convolution
@@ -184,6 +193,9 @@ class BinSim(object):
                     src_transform = stereo_audio_in[6:22, 1].reshape(4,4);
                     lst_transform = stereo_audio_in[22:38,1].reshape(4,4);
 
+                    # read how many channels are active
+                    num_sources_rcv = int(stereo_audio_in[38,1])
+
                     # correct 30 degree offset
                     lst_to_src_azimuth = (lst_to_src_azimuth + 30) % 360
                     
@@ -193,13 +205,30 @@ class BinSim(object):
                     # print("Source to listener distance: " + str(lst_to_src_dist))
                     # print("Source transform: " + str(src_transform))
                     # print("Listener transform: " + str(lst_transform))
+                    # print("Num sources: " + str(num_sources_rcv))
+
+                    # check number of sources
+                    # if this is the first packet of the group, set the expected number of packets
+                    if self.packets_received == 0:
+                        self.num_sources = num_sources_rcv
+                        # clear result
+                        self.result *= 0
+
+                    # if not first packet of group, check number of sources conforms to expectations
+                    else:
+                        if num_sources_rcv is not self.num_sources:
+                            # raise PyBinSimError('Number of sources has changed between receiving the first and last packets!')
+                            print('WARNING: Number of sources has changed between receiving the first and last packets!')
+
+                    self.packets_received += 1
 
                     self.poseParser.parse_pose_input(convChannel, lst_to_src_azimuth, lst_to_src_elevation)
+                    self.process_block_accumulate(convChannel);
 
-                    self.process_block(convChannel);
-
-                    #reply to client
-                    self.zmq_socket.send(self.result, copy=False);
+                    # send reply to client, assuming that all sources were processed
+                    if self.packets_received == self.num_sources:
+                        self.packets_received = 0
+                        self.zmq_socket.send(self.result, copy=False);
 
                 else:
                     print("ERROR: received packet has incorrect size")
@@ -219,6 +248,7 @@ class BinSim(object):
 
     def initialize_pybinsim(self):
         self.result = np.empty([self.blockSize, 2], dtype=np.float32)
+        self.channel_result = np.empty([self.blockSize, 2], dtype=np.float32)
         self.block = np.empty(self.blockSize, dtype=np.float32)
 
         # Create FilterStorage
@@ -278,6 +308,35 @@ class BinSim(object):
         # Scale data if required
         self.result = np.multiply(
             self.result, self.config.get('loudnessFactor'))
+
+        if np.max(np.abs(self.result)) > 1:
+            self.log.warn('Clipping occurred: Adjust loudnessFactor!')
+
+        # if self.block.size < self.blockSize:
+            # self.log.warn('Block size too small: not handled yet')
+
+
+    def process_block_accumulate(self, convChannel):
+        # Update Filter and run convolver with the current block
+
+        # Get new Filter
+        if self.poseParser.is_filter_update_necessary(convChannel):
+            filterValueList = self.poseParser.get_current_values(convChannel)
+            filter = self.filterStorage.get_filter(
+                Pose.from_filterValueList(filterValueList))
+            self.convolvers[convChannel].setIR(filter, self.config.get('enableCrossfading'))
+
+        self.channel_result[:, 0], self.channel_result[:,1] = self.convolvers[convChannel].process(self.block)
+
+        # Finally apply Headphone Filter
+        if self.config.get('useHeadphoneFilter'):
+            self.channel_result[:, 0], self.channel_result[:,1] = self.convolverHP.process(self.channel_result)
+
+        # Scale data if required
+        self.channel_result = np.multiply(
+            self.channel_result, self.config.get('loudnessFactor'))
+
+        self.result += self.channel_result;
 
         if np.max(np.abs(self.result)) > 1:
             self.log.warn('Clipping occurred: Adjust loudnessFactor!')
