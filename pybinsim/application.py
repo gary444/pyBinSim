@@ -157,6 +157,8 @@ class BinSim(object):
         self.zmq_socket = self.zmq_context.socket(zmq.PAIR)
         self.zmq_socket.bind("tcp://" + self.zmq_ip + ":" + self.zmq_port )
 
+        self.zmq_socket.setsockopt(zmq.RCVTIMEO, 1000000) 
+
     def run_server(self):
         self.log.info("BinSim: run_server")
 
@@ -242,7 +244,9 @@ class BinSim(object):
                     self.zmq_socket.send(first_channel_doubled, copy=False);
 
             except zmq.ZMQError:
+                # print("ZMQError")
                 pass
+
 
 
 
