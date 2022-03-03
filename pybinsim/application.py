@@ -152,13 +152,15 @@ class BinSim(object):
     def run_server(self):
         self.log.info("BinSim: run_server")
 
+        frames_received = 0
+
         while True:
             #wait for request from client
             #TODO avoid copying message
             try:
                 message_frame = self.zmq_socket.recv(flags=zmq.NOBLOCK,copy=False)
 
-                print("Received message frame with " + str(len(message_frame)) + " bytes")
+                # print("Received message frame with " + str(len(message_frame)) + " bytes")
 
                 # non copying buffer view, but is read only...alternative for this?
                 in_buf = memoryview(message_frame)
@@ -184,6 +186,24 @@ class BinSim(object):
                     src_transform = stereo_audio_in[6:22, 1].reshape(4,4);
                     lst_transform = stereo_audio_in[22:38,1].reshape(4,4);
 
+                    # read mouth/ear angles
+                    ear_L_to_mouth_azimuth   = quantize_azimuth  (stereo_audio_in[39,1])
+                    ear_L_to_mouth_elevation = quantize_elevation(stereo_audio_in[40,1])
+                    ear_R_to_mouth_azimuth   = quantize_azimuth  (stereo_audio_in[41,1])
+                    ear_R_to_mouth_elevation = quantize_elevation(stereo_audio_in[42,1])
+                    mouth_to_ear_L_azimuth   = quantize_azimuth  (stereo_audio_in[43,1])
+                    mouth_to_ear_L_elevation = quantize_elevation(stereo_audio_in[44,1])
+                    mouth_to_ear_R_azimuth   = quantize_azimuth  (stereo_audio_in[45,1])
+                    mouth_to_ear_R_elevation = quantize_elevation(stereo_audio_in[46,1])
+                    
+                    ear_L_to_mouth_dist = stereo_audio_in[47,1]
+                    ear_R_to_mouth_dist = stereo_audio_in[48,1]
+
+                    # if frames_received % 100 == 0:
+                        # print("mouth to ear L distance: " + str(ear_L_to_mouth_dist))
+                        # print("mouth to ear R distance: " + str(ear_R_to_mouth_dist))
+
+
                     # correct 30 degree offset
                     lst_to_src_azimuth = (lst_to_src_azimuth + 30) % 360
                     
@@ -200,6 +220,8 @@ class BinSim(object):
 
                     #reply to client
                     self.zmq_socket.send(self.result, copy=False);
+
+                    frames_received += 1
 
                 else:
                     print("ERROR: received packet has incorrect size")
