@@ -136,6 +136,8 @@ class BinSim(object):
         self.zmq_port = self.config.get('serverPort')
         self.init_zmq()
 
+        self.spatialize = True
+
     def __enter__(self):
         return self
 
@@ -198,6 +200,14 @@ class BinSim(object):
                     
                     ear_L_to_mouth_dist = stereo_audio_in[47,1]
                     ear_R_to_mouth_dist = stereo_audio_in[48,1]
+
+                    # determines whether spatialization should occur
+                    spatialization = stereo_audio_in[49,1]
+                    if spatialization > 0.0:
+                        self.spatialize = True
+                    else:
+                        self.spatialize = False
+                    # print("Spatialize: " + str(spatialization))
 
                     # if frames_received % 100 == 0:
                         # print("mouth to ear L distance: " + str(ear_L_to_mouth_dist))
@@ -281,6 +291,16 @@ class BinSim(object):
             if self.convolverHP:
                 self.convolverHP.close()
 
+    def average_left_and_right_channels(self):
+
+        # average channels in left channel
+        self.result[:,0] = np.add(self.result[:,0], self.result[:,1])
+        self.result = np.multiply(self.result, 0.5)
+
+        #copy to right channel
+        self.result[:,1] = np.copy(self.result[:,0])
+
+
     def process_block(self, convChannel):
         # Update Filter and run convolver with the current block
 
@@ -292,6 +312,9 @@ class BinSim(object):
             self.convolvers[convChannel].setIR(filter, self.config.get('enableCrossfading'))
 
         self.result[:, 0], self.result[:,1] = self.convolvers[convChannel].process(self.block)
+
+        if self.spatialize == False:
+            self.average_left_and_right_channels()
 
         # Finally apply Headphone Filter
         if self.config.get('useHeadphoneFilter'):
