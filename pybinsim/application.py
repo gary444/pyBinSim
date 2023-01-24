@@ -151,6 +151,8 @@ class BinSim(object):
         self.zmq_port = self.config.get('serverPort')
         self.init_zmq()
 
+        self.spatialize = [True] * self.maxChannels
+
     def __enter__(self):
         return self
 
@@ -212,6 +214,13 @@ class BinSim(object):
                 src_transform = stereo_audio_in[6:22, 1] .reshape(4, 4)
                 lst_transform = stereo_audio_in[22:38, 1].reshape(4, 4)
 
+                spatialization = stereo_audio_in[49,1]
+                if spatialization > 0.0:
+                    self.spatialize[convChannel] = True
+                else:
+                    self.spatialize[convChannel] = False
+                print("Channel " + str(convChannel) + " Spatialize: " + str(spatialization))
+
                 self.poseParser.parse_pose_input(convChannel, lst_to_src_azimuth, lst_to_src_elevation,
                                                  src_to_lst_azimuth, src_to_lst_elevation)
 
@@ -271,6 +280,20 @@ class BinSim(object):
             if self.convolverHP:
                 self.convolverHP.close()
 
+
+
+    def average_left_and_right_channels(self):
+
+        # average channels in left channel
+        self.result[:,0] = np.add(self.result[:,0], self.result[:,1])
+        self.result[:,0] = np.multiply(self.result[:,0], 0.5)
+
+        #copy to right channel
+        self.result[:,1] = np.copy(self.result[:,0])
+
+
+
+
     def process_block(self, convChannel, dist):
         # Update Filter and run convolver with the current block
         
@@ -289,6 +312,12 @@ class BinSim(object):
         
         self.result[:, 0], self.result[:, 1] = self.convolvers[convChannel].process(self.block)
         
+
+        if self.spatialize[convChannel] == False:
+            self.average_left_and_right_channels()
+
+
+
         # Apply headphone filter
         if self.config.get('useHeadphoneFilter'):
             self.result[:, 0], self.result[:, 1], _ = self.convolverHP.process(self.result)
