@@ -23,6 +23,7 @@
 """ Module contains main loop and configuration of pyBinSim """
 import logging
 import time
+import sys
 import numpy as np
 import zmq
 
@@ -45,6 +46,15 @@ def parse_boolean(any_value):
 
     return None
 
+# TODO: These two functions are no longer needed
+def quantize_azimuth(azimuth_in):
+    # assume 5 degree steps
+    azimuth_out = int(round(azimuth_in / 5.0) * 5) % 360
+    return azimuth_out 
+
+def quantize_elevation(elevation_in):
+    elevation_out = int(0)
+    return elevation_out
 
 def quantize_azimuth(azimuth_in):
     # assume 5 degree steps 
@@ -63,13 +73,22 @@ class BinSimConfig(object):
         self.log = logging.getLogger("pybinsim.BinSimConfig")
 
         # Default Configuration
-        self.configurationDict = {'blockSize': 256,
+        self.configurationDict = {'soundfile': '',
+                                  'blockSize': 256,
                                   'filterSize': 16384,
                                   'filterList': 'brirs/filter_list_kemar5.txt',
                                   'enableCrossfading': False,
                                   'useHeadphoneFilter': False,
+                                  'headphoneFilterSize': 16384,
                                   'loudnessFactor': float(1),
                                   'maxChannels': 8,
+                                  'samplingRate': 44100,
+                                  'loopSound': True,
+                                  'useSplittedFilters': False,
+                                  'lateReverbSize': 16384,
+                                  'dirFilterSize': 16384,
+                                  'pauseConvolution': False,
+                                  'pauseAudioPlayback': False,
                                   'serverIPAddress': '127.0.0.1',
                                   'serverPort': '12346'}
 
@@ -103,6 +122,12 @@ class BinSimConfig(object):
     def get(self, setting):
         return self.configurationDict[setting]
 
+    def set(self, setting, value):
+        value = parse_boolean(value)
+        if type(self.configurationDict[setting]) == type(value):
+            self.configurationDict[setting] = value
+        else:
+            self.log.warning('New value for entry ' + setting + ' has wrong type: ' + str(type(value)))
 
 class BinSim(object):
     """
@@ -128,156 +153,146 @@ class BinSim(object):
         self.stream = None
 
         self.convolverWorkers = []
+        #self.convolverHP, self.convolvers, self.filterStorage, self.oscReceiver, self.soundHandler = self.initialize_pybinsim()
         self.convolverHP, self.convolvers, self.filterStorage = self.initialize_pybinsim()
-
+        
         self.poseParser = InlinePoseParser(self.maxChannels)
-
+        
         self.zmq_ip = self.config.get('serverIPAddress')
         self.zmq_port = self.config.get('serverPort')
         self.init_zmq()
 
-        self.spatialize = True
+        self.spatialize = [True] * self.maxChannels
 
     def __enter__(self):
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         self.__cleanup()
-
-
+        
     def init_zmq(self):
-        self.log.info(("BinSim: init ZMQ, IP: {}, port {}").format(self.zmq_ip, self.zmq_port))
+        self.log.info(f'BinSim: init ZMQ, IP: {self.zmq_ip}, Port: {self.zmq_port}')
         self.zmq_context = zmq.Context()
         self.zmq_socket = self.zmq_context.socket(zmq.REP)
-        self.zmq_socket.bind("tcp://" + self.zmq_ip + ":" + self.zmq_port )
+        self.zmq_socket.bind('tcp://' + self.zmq_ip + ':' + self.zmq_port)
 
     def run_server(self):
-        self.log.info("BinSim: run_server")
 
-        frames_received = 0
-
+        self.log.info('BinSim: run_server')
+        
         while True:
-            #wait for request from client
-            #TODO avoid copying message
+            # wait for request from client
+            # TODO: avoid copying message
             try:
-                message_frame = self.zmq_socket.recv(flags=zmq.NOBLOCK,copy=False)
 
-                # print("Received message frame with " + str(len(message_frame)) + " bytes")
-
+                message_frame = self.zmq_socket.recv(flags=zmq.NOBLOCK, copy=False)
+                
                 # non copying buffer view, but is read only...alternative for this?
                 in_buf = memoryview(message_frame)
 
-                stereo_audio_in_1d_buffer = np.frombuffer(in_buf, dtype=np.float32)
+                stereo_audio_in = np.frombuffer(in_buf, dtype=np.float32).reshape((self.blockSize, self.inChannels))
+                # take first channel of input only as input for convolution
+                self.block[:] = stereo_audio_in[:,0]
 
-                if stereo_audio_in_1d_buffer.size == self.blockSize * self.inChannels:
+                # parse audio packet metadata from second input channel
+                convChannel          = int(stereo_audio_in[0, 1])
+                lst_to_src_azimuth   = stereo_audio_in[1, 1]
+                lst_to_src_elevation = stereo_audio_in[2, 1]
+                src_to_lst_azimuth   = stereo_audio_in[3, 1]
+                src_to_lst_elevation = stereo_audio_in[4, 1]
+                lst_to_src_dist      = stereo_audio_in[5, 1]
 
+                #self.log.info(f'lst->src azi: {lst_to_src_azimuth}')
+                #self.log.info(f'lst->src ele: {lst_to_src_elevation}')
+                #self.log.info(f'src->lst azi: {src_to_lst_azimuth}')
+                #self.log.info(f'src->lst ele: {src_to_lst_elevation}')
+                #self.log.info(f'distance: {lst_to_src_dist}')
 
-                    stereo_audio_in = stereo_audio_in_1d_buffer.reshape((self.blockSize, self.inChannels))
-                    # take first channel of input only as input for convolution
-                    self.block[:] = stereo_audio_in[:,0]
+                # hrtf filters are reversed...
+                lst_to_src_azimuth = (360 - lst_to_src_azimuth) % 360
 
-                    # parse audio packet metadata from second input channel
-                    convChannel          = int(stereo_audio_in[0,1])
-                    lst_to_src_azimuth   = quantize_azimuth  ( stereo_audio_in[1,1] );
-                    lst_to_src_elevation = quantize_elevation( stereo_audio_in[2,1] );
-                    src_to_lst_azimuth   = quantize_azimuth  ( stereo_audio_in[3,1] );
-                    src_to_lst_elevation = quantize_elevation( stereo_audio_in[4,1] );
-                    lst_to_src_dist      = stereo_audio_in[5,1];
-
-                    # read rowmajor matrices from audio packet
-                    src_transform = stereo_audio_in[6:22, 1].reshape(4,4);
-                    lst_transform = stereo_audio_in[22:38,1].reshape(4,4);
-
-                    # read mouth/ear angles
-                    ear_L_to_mouth_azimuth   = quantize_azimuth  (stereo_audio_in[39,1])
-                    ear_L_to_mouth_elevation = quantize_elevation(stereo_audio_in[40,1])
-                    ear_R_to_mouth_azimuth   = quantize_azimuth  (stereo_audio_in[41,1])
-                    ear_R_to_mouth_elevation = quantize_elevation(stereo_audio_in[42,1])
-                    mouth_to_ear_L_azimuth   = quantize_azimuth  (stereo_audio_in[43,1])
-                    mouth_to_ear_L_elevation = quantize_elevation(stereo_audio_in[44,1])
-                    mouth_to_ear_R_azimuth   = quantize_azimuth  (stereo_audio_in[45,1])
-                    mouth_to_ear_R_elevation = quantize_elevation(stereo_audio_in[46,1])
-                    
-                    ear_L_to_mouth_dist = stereo_audio_in[47,1]
-                    ear_R_to_mouth_dist = stereo_audio_in[48,1]
-
-                    # determines whether spatialization should occur
-                    spatialization = stereo_audio_in[49,1]
-                    if spatialization > 0.0:
-                        self.spatialize = True
-                    else:
-                        self.spatialize = False
-                    # print("Spatialize: " + str(spatialization))
-
-                    # if frames_received % 100 == 0:
-                        # print("mouth to ear L distance: " + str(ear_L_to_mouth_dist))
-                        # print("mouth to ear R distance: " + str(ear_R_to_mouth_dist))
+                # elevation filters range from 0 to 180, not -90 to 90
+                lst_to_src_elevation += 90
+                src_to_lst_elevation += 90
 
 
-                    # correct 30 degree offset
-                    lst_to_src_azimuth = (lst_to_src_azimuth + 30) % 360
-                    
-                    # print("Channel: " + str(convChannel))
-                    # print("Listener to source Angle: " + str(lst_to_src_azimuth) + " / " + str(lst_to_src_elevation))
-                    # print("Source to listener Angle: " + str(src_to_lst_azimuth) + " / " + str(src_to_lst_elevation))
-                    # print("Source to listener distance: " + str(lst_to_src_dist))
-                    # print("Source transform: " + str(src_transform))
-                    # print("Listener transform: " + str(lst_transform))
+                # TODO: Change range perhaps...
+                reference_dist = 1.25
+                max_dist = 10
+                min_dist = 0.01
+                relative_dist = reference_dist / lst_to_src_dist
+                relative_dist = min(max(min_dist, relative_dist), max_dist)
 
-                    self.poseParser.parse_pose_input(convChannel, lst_to_src_azimuth, lst_to_src_elevation)
+                # read rowmajor matrices from audio packet
+                src_transform = stereo_audio_in[6:22, 1] .reshape(4, 4)
+                lst_transform = stereo_audio_in[22:38, 1].reshape(4, 4)
 
-                    self.process_block(convChannel);
 
-                    #reply to client
-                    self.zmq_socket.send(self.result, copy=False);
+                # read mouth/ear angles
+                # ear_L_to_mouth_azimuth   = quantize_azimuth  (stereo_audio_in[39,1])
+                # ear_L_to_mouth_elevation = quantize_elevation(stereo_audio_in[40,1])
+                # ear_R_to_mouth_azimuth   = quantize_azimuth  (stereo_audio_in[41,1])
+                # ear_R_to_mouth_elevation = quantize_elevation(stereo_audio_in[42,1])
+                # mouth_to_ear_L_azimuth   = quantize_azimuth  (stereo_audio_in[43,1])
+                # mouth_to_ear_L_elevation = quantize_elevation(stereo_audio_in[44,1])
+                # mouth_to_ear_R_azimuth   = quantize_azimuth  (stereo_audio_in[45,1])
+                # mouth_to_ear_R_elevation = quantize_elevation(stereo_audio_in[46,1])
+                # ear_L_to_mouth_dist = stereo_audio_in[47,1]
+                # ear_R_to_mouth_dist = stereo_audio_in[48,1]
 
-                    frames_received += 1
-
+                spatialization = stereo_audio_in[49,1]
+                if spatialization > 0.0:
+                    self.spatialize[convChannel] = True
                 else:
-                    print("ERROR: received packet has incorrect size")
-                    # assume 2 input channels, send back first channel
-                    stereo_audio_in = stereo_audio_in_1d_buffer.reshape((int(stereo_audio_in_1d_buffer.size / 2), int(2)))
+                    self.spatialize[convChannel] = False
+                print("Channel " + str(convChannel) + " Spatialize: " + str(spatialization))
 
-                    first_channel_doubled = np.empty([int(stereo_audio_in_1d_buffer.size / 2), int(2)], dtype=np.float32)
-                    first_channel_doubled[:,0] = np.copy(stereo_audio_in[:,0])
-                    first_channel_doubled[:,1] = np.copy(stereo_audio_in[:,0])
+                self.poseParser.parse_pose_input(convChannel, lst_to_src_azimuth, lst_to_src_elevation,
+                                                 src_to_lst_azimuth, src_to_lst_elevation)
 
-                    self.zmq_socket.send(first_channel_doubled, copy=False);
+                self.process_block(convChannel, relative_dist)
+
+                #reply to client
+                self.zmq_socket.send(self.result, copy=False)
 
             except zmq.ZMQError:
                 pass
 
 
-
     def initialize_pybinsim(self):
         self.result = np.empty([self.blockSize, 2], dtype=np.float32)
+        #self.block = np.empty([self.nChannels, self.blockSize], dtype=np.float32)
         self.block = np.empty(self.blockSize, dtype=np.float32)
 
         # Create FilterStorage
         filterStorage = FilterStorage(self.config.get('filterSize'),
                                       self.blockSize,
-                                      self.config.get('filterList'))
+                                      self.config.get('filterList'),
+                                      self.config.get('useHeadphoneFilter'),
+                                      self.config.get('headphoneFilterSize'),
+                                      self.config.get('useSplittedFilters'),
+                                      self.config.get('lateReverbSize'),
+                                      self.config.get('dirFilterSize'))
 
         # Create N convolvers depending on the number of wav channels
-        self.log.info('Number of input Channels: ' + str(self.inChannels))
+        self.log.info('Number of input channels: ' + str(self.inChannels))
         self.log.info('Number of channels to process: ' + str(self.maxChannels))
         convolvers = [None] * self.maxChannels
         for n in range(self.maxChannels):
-            convolvers[n] = ConvolverFFTW(self.config.get(
-                'filterSize'), self.blockSize, False)
+            convolvers[n] = ConvolverFFTW(self.config.get('filterSize'), self.blockSize, False, self.config.get('useSplittedFilters'), self.config.get('lateReverbSize'))
 
         # HP Equalization convolver
         convolverHP = None
         if self.config.get('useHeadphoneFilter'):
             convolverHP = ConvolverFFTW(self.config.get(
-                'filterSize'), self.blockSize, True)
+                'headphoneFilterSize'), self.blockSize, True)
             hpfilter = filterStorage.get_headphone_filter()
             convolverHP.setIR(hpfilter, False)
 
         return convolverHP, convolvers, filterStorage
 
     def close(self):
-        self.log.info("BinSim: close")
+        self.log.info('BinSim: close')
 
     def __cleanup(self):
         # Close everything when BinSim is finished
@@ -291,35 +306,46 @@ class BinSim(object):
             if self.convolverHP:
                 self.convolverHP.close()
 
+
+
     def average_left_and_right_channels(self):
 
         # average channels in left channel
         self.result[:,0] = np.add(self.result[:,0], self.result[:,1])
-        self.result = np.multiply(self.result, 0.5)
+        self.result[:,0] = np.multiply(self.result[:,0], 0.5)
 
         #copy to right channel
         self.result[:,1] = np.copy(self.result[:,0])
 
 
-    def process_block(self, convChannel):
-        # Update Filter and run convolver with the current block
 
+
+    def process_block(self, convChannel, dist):
+        # Update Filter and run convolver with the current block
+        
         # Get new Filter
+        # TODO: change filterValueList to something usable - where, though?
         if self.poseParser.is_filter_update_necessary(convChannel):
             filterValueList = self.poseParser.get_current_values(convChannel)
-            filter = self.filterStorage.get_filter(
-                Pose.from_filterValueList(filterValueList))
-            self.convolvers[convChannel].setIR(filter, self.config.get('enableCrossfading'))
+            filter = self.filterStorage.get_filter(Pose.from_filterValueList(filterValueList))
+            fvl = list(filterValueList[3:]) + [ 0, 0, 0]
+            dir_filter = self.filterStorage.get_directivity_filter(Pose.from_filterValueList(fvl))
+            self.convolvers[convChannel].setIR(filter, self.config.get('enableCrossfading'), dist, dir_filter)
 
-        self.result[:, 0], self.result[:,1] = self.convolvers[convChannel].process(self.block)
+            if self.config.get('useSplittedFilters'):
+                lr_filter = self.filterStorage.get_late_reverb_filter(Pose.from_filterValueList(filterValueList))
+                self.convolvers[convChannel].setLateReverb(lr_filter, self.config.get('enableCrossfading'))
+        
+        self.result[:, 0], self.result[:, 1] = self.convolvers[convChannel].process(self.block)
+        
 
-        if self.spatialize == False:
+        if self.spatialize[convChannel] == False:
             self.average_left_and_right_channels()
 
-        # Finally apply Headphone Filter
+        # Apply headphone filter
         if self.config.get('useHeadphoneFilter'):
-            self.result[:, 0], self.result[:,1] = self.convolverHP.process(self.result)
-
+            self.result[:, 0], self.result[:, 1], _ = self.convolverHP.process(self.result)
+            
         # Scale data if required
         self.result = np.multiply(
             self.result, self.config.get('loudnessFactor'))
@@ -329,5 +355,91 @@ class BinSim(object):
 
         # if self.block.size < self.blockSize:
             # self.log.warn('Block size too small: not handled yet')
+        
+## TODO: is there still stuff to change in the process function
+##       will we need to take it from below
+def audio_callback(binsim):
+    """ Wrapper for callback to hand over custom data """
+    assert isinstance(binsim, BinSim)
 
+    # The python-sounddevice Callback
+    def callback(outdata, frame_count, time_info, status):
+        # print("python-sounddevice callback")
 
+        if "debugpy" in sys.modules:
+            import debugpy
+            debugpy.debug_this_thread()
+
+        # Update config
+        binsim.current_config = binsim.oscReceiver.get_current_config()
+
+        # Update audio files
+        current_soundfile_list = binsim.oscReceiver.get_sound_file_list()
+        if current_soundfile_list:
+            binsim.soundHandler.request_new_sound_file(current_soundfile_list)
+
+        # Get sound block. At least one convolver should exist
+        amount_channels = binsim.soundHandler.get_sound_channels()
+        if amount_channels == 0:
+            return
+
+        if binsim.current_config.get('pauseAudioPlayback'):
+            binsim.block[:amount_channels, :] = binsim.soundHandler.read_zeros()
+        else:
+            binsim.block[:amount_channels, :] = binsim.soundHandler.buffer_read()
+
+        if binsim.current_config.get('pauseConvolution'):
+            if binsim.soundHandler.get_sound_channels() == 2:
+                binsim.result = np.transpose(binsim.block[:binsim.soundHandler.get_sound_channels(), :])
+            else:
+                mix = np.mean(binsim.block[:binsim.soundHandler.get_sound_channels(), :], 0)
+                binsim.result[:, 0] = mix
+                binsim.result[:, 1] = mix
+        else:
+            # Update Filters and run each convolver with the current block
+            for n in range(amount_channels):
+
+                # Get new Filter
+                if binsim.oscReceiver.is_filter_update_necessary(n):
+                    filterValueList = binsim.oscReceiver.get_current_filter_values(n)
+                    filter = binsim.filterStorage.get_filter(Pose.from_filterValueList(filterValueList))
+                    binsim.convolvers[n].setIR(filter, callback.config.get('enableCrossfading'))
+                    
+                # Get new late reverb Filter
+                if binsim.oscReceiver.is_late_reverb_update_necessary(n):
+                    lateReverbValueList = binsim.oscReceiver.get_current_late_reverb_values(n)
+                    latereverbfilter = binsim.filterStorage.get_late_reverb_filter(Pose.from_filterValueList(lateReverbValueList))
+                    binsim.convolvers[n].setLateReverb(latereverbfilter, callback.config.get('enableCrossfading'))
+
+                left, right = binsim.convolvers[n].process(binsim.block[n, :])
+
+                # Sum results from all convolvers
+                if n == 0:
+                    binsim.result[:, 0] = left
+                    binsim.result[:, 1] = right
+                else:
+                    binsim.result[:, 0] = np.add(binsim.result[:, 0], left)
+                    binsim.result[:, 1] = np.add(binsim.result[:, 1], right)
+
+            # Finally apply Headphone Filter
+            if callback.config.get('useHeadphoneFilter'):
+                binsim.result[:, 0], binsim.result[:, 1] = binsim.convolverHP.process(binsim.result)
+
+        # Scale data
+        binsim.result = np.divide(binsim.result, float((amount_channels) * 2))
+        binsim.result = np.multiply(binsim.result, callback.config.get('loudnessFactor'))
+
+        outdata[:, 0] = binsim.result[:, 0]
+        outdata[:, 1] = binsim.result[:, 1]
+        
+        # Report buffer underrun
+        if status == 4:
+            binsim.log.warn('Output buffer underrun occurred')
+
+        # Report clipping
+        if np.max(np.abs(binsim.result)) > 1:
+            binsim.log.warn('Clipping occurred: Adjust loudnessFactor!')
+
+    callback.config = binsim.config
+
+    return callback
