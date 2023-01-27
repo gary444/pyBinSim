@@ -308,15 +308,6 @@ class BinSim(object):
 
 
 
-    def average_left_and_right_channels(self):
-
-        # average channels in left channel
-        self.result[:,0] = np.add(self.result[:,0], self.result[:,1])
-        self.result[:,0] = np.multiply(self.result[:,0], 0.5)
-
-        #copy to right channel
-        self.result[:,1] = np.copy(self.result[:,0])
-
 
 
 
@@ -326,21 +317,29 @@ class BinSim(object):
         # Get new Filter
         # TODO: change filterValueList to something usable - where, though?
         if self.poseParser.is_filter_update_necessary(convChannel):
-            filterValueList = self.poseParser.get_current_values(convChannel)
-            filter = self.filterStorage.get_filter(Pose.from_filterValueList(filterValueList))
-            fvl = list(filterValueList[3:]) + [ 0, 0, 0]
-            dir_filter = self.filterStorage.get_directivity_filter(Pose.from_filterValueList(fvl))
-            self.convolvers[convChannel].setIR(filter, self.config.get('enableCrossfading'), dist, dir_filter)
+            if self.spatialize[convChannel] == False:
+                filter = self.filterStorage.get_filter(Pose.from_filterValueList(list([0.0, 0.0, 1, 0, 0, 0])))
+                dir_filter = self.filterStorage.get_directivity_filter(Pose.from_filterValueList(list([0.0, 0.0, 0, 0, 0, 0] + [ 0, 0, 0])))
+                self.convolvers[convChannel].setIR(filter, self.config.get('enableCrossfading'), dist, dir_filter)
 
-            if self.config.get('useSplittedFilters'):
-                lr_filter = self.filterStorage.get_late_reverb_filter(Pose.from_filterValueList(filterValueList))
-                self.convolvers[convChannel].setLateReverb(lr_filter, self.config.get('enableCrossfading'))
+                if self.config.get('useSplittedFilters'):
+                    lr_filter = self.filterStorage.get_late_reverb_filter(Pose.from_filterValueList(list([0, 0, 1, 0, 0, 0] + [ 0, 0, 0])))
+                    self.convolvers[convChannel].setLateReverb(lr_filter, self.config.get('enableCrossfading'))
+
+            else:
+                filterValueList = self.poseParser.get_current_values(convChannel)
+                filter = self.filterStorage.get_filter(Pose.from_filterValueList(filterValueList))
+                fvl = list(filterValueList[3:]) + [ 0, 0, 0]
+                dir_filter = self.filterStorage.get_directivity_filter(Pose.from_filterValueList(fvl))
+                self.convolvers[convChannel].setIR(filter, self.config.get('enableCrossfading'), dist, dir_filter)
+
+                if self.config.get('useSplittedFilters'):
+                    lr_filter = self.filterStorage.get_late_reverb_filter(Pose.from_filterValueList(filterValueList))
+                    self.convolvers[convChannel].setLateReverb(lr_filter, self.config.get('enableCrossfading'))
         
         self.result[:, 0], self.result[:, 1] = self.convolvers[convChannel].process(self.block)
         
 
-        if self.spatialize[convChannel] == False:
-            self.average_left_and_right_channels()
 
         # Apply headphone filter
         if self.config.get('useHeadphoneFilter'):
