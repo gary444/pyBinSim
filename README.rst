@@ -7,6 +7,8 @@ PyBinSim
 Install
 -------
 
+Extract the `audictive.zip` file in place.
+
 Let's create a virtual environment. Use either Python or Conda to do this and then use `pip` to install the dependencies.
 
 Windows
@@ -172,6 +174,11 @@ Check the https://github.com/pyBinSim/AppExamples repository for ready-to-use de
 
 
 
+Troubleshooting
+----------
+
+For Unity integration:
+ * 'cannot reshape array' error: may arise when Unity sends audio buffers with different size to those expected by pyBinSim. DSP buffer size in Unity can be changed under `Project Settings > Audio' ('Good Latency' mode corresponds to pyBinSim's default of 512 samples). 
 
 Reference:
 ----------
