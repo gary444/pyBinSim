@@ -190,7 +190,13 @@ class BinSim(object):
                 # non copying buffer view, but is read only...alternative for this?
                 in_buf = memoryview(message_frame)
 
-                stereo_audio_in = np.frombuffer(in_buf, dtype=np.float32).reshape((self.blockSize, self.inChannels))
+                stereo_audio_in_1d_buffer = np.frombuffer(in_buf, dtype=np.float32)
+                print("Received buffer with total size " + str(stereo_audio_in_1d_buffer.size))
+                stereo_audio_in = stereo_audio_in_1d_buffer.reshape((self.blockSize, self.inChannels))
+
+                # stereo_audio_in = np.frombuffer(in_buf, dtype=np.float32).reshape((self.blockSize, self.inChannels))
+                
+
                 # take first channel of input only as input for convolution
                 self.block[:] = stereo_audio_in[:,0]
 
